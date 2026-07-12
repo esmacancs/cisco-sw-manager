@@ -40,7 +40,7 @@
     .card-dark { background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; }
     .table-cisco { width: 100%; border-collapse: collapse; font-size: 12px; }
     .table-cisco thead th { background: rgba(var(--accent-rgb), 0.08); color: var(--accent); padding: 8px 10px; text-align: left; font-weight: 500; text-transform: uppercase; font-size: 10px; letter-spacing: 0.3px; border-bottom: 1px solid var(--border); }
-    .table-cisco tbody td { padding: 6px 10px; border-bottom: 1px solid rgba(var(--accent-rgb), 0.08); color: var(--text-primary); }
+    .table-cisco tbody td { padding: 8px 10px; border-bottom: 1px solid rgba(var(--accent-rgb), 0.08); color: var(--text-primary); }
     .table-cisco tbody tr:hover { background: rgba(var(--accent-rgb), 0.04); }
     .badge-admin { background: rgba(var(--accent-rgb), 0.15); color: var(--accent); border: 1px solid rgba(var(--accent-rgb), 0.3); padding: 2px 10px; border-radius: 12px; font-size: 10px; font-weight: 600; }
     .badge-user { background: rgba(46, 213, 115, 0.15); color: #2ed573; border: 1px solid rgba(46, 213, 115, 0.3); padding: 2px 10px; border-radius: 12px; font-size: 10px; font-weight: 600; }
@@ -50,6 +50,11 @@
     .btn-danger-sm:hover { background: rgba(255, 71, 87, 0.2); }
     .btn-theme { background: rgba(var(--accent-rgb), 0.1); border: 1px solid rgba(var(--accent-rgb), 0.25); color: var(--accent); border-radius: 8px; padding: 4px 10px; font-size: 14px; cursor: pointer; line-height: 1; }
     .btn-theme:hover { background: rgba(var(--accent-rgb), 0.2); }
+    .tab-toggle { display: inline-flex; align-items: center; gap: 4px; padding: 2px 10px; border-radius: 12px; font-size: 10px; font-weight: 600; cursor: pointer; border: 1px solid var(--border); transition: all 0.15s; }
+    .tab-toggle.on { background: rgba(var(--accent-rgb), 0.15); color: var(--accent); border-color: rgba(var(--accent-rgb), 0.3); }
+    .tab-toggle.off { background: transparent; color: var(--text-tertiary); border-color: var(--border); opacity: 0.5; }
+    .tab-toggle:hover { opacity: 1; }
+    .saved-msg { font-size: 11px; color: #2ed573; transition: opacity 0.5s; }
   </style>
   <script>
     (function() {
@@ -79,6 +84,27 @@
     </div>
   </div>
   <script>
+    const ALL_TABS_MGMT = [
+      { id: 'interfaces',   label: 'Interfaces' },
+      { id: 'vsans',        label: 'VSANs' },
+      { id: 'vlans',        label: 'VLANs' },
+      { id: 'modules',      label: 'Modules' },
+      { id: 'inventory',    label: 'Inventory' },
+      { id: 'flogi',        label: 'FLOGI' },
+      { id: 'fcns',         label: 'FCNS' },
+      { id: 'zoning',       label: 'Zoning' },
+      { id: 'environment',  label: 'Environment' },
+      { id: 'portchannels', label: 'Port Channels' },
+      { id: 'devaliases',   label: 'Device Aliases' },
+      { id: 'portsecurity', label: 'Port Security' },
+      { id: 'scsitargets',  label: 'SCSI Targets' },
+      { id: 'storage',      label: 'Storage' },
+      { id: 'accounting',   label: 'Accounting' },
+      { id: 'syslogs',      label: 'Syslogs' },
+      { id: 'metrics',      label: 'Metrics' },
+      { id: 'console',      label: 'Console' },
+    ];
+
     function loadUsers() {
       fetch('/api/users').then(r => {
         if (!r.ok) { window.location.href = '/'; return; }
@@ -91,17 +117,54 @@
           return;
         }
         el.innerHTML = `<table class="table-cisco">
-          <thead><tr><th>ID</th><th>Username</th><th>Role</th><th>Created</th><th>Actions</th></tr></thead>
-          <tbody>${users.map(u => `<tr>
-            <td>${u.id}</td>
-            <td><strong>${u.username}</strong></td>
-            <td><span class="${u.role === 'admin' ? 'badge-admin' : 'badge-user'}">${u.role}</span></td>
-            <td style="font-size:11px;color:#667788;">${u.created_at || '-'}</td>
-            <td>${u.role !== 'admin' ? `<button class="btn-danger-sm" onclick="deleteUser(${u.id})"><i class="bi bi-trash me-1"></i>Delete</button>` : '<span style="color:#445566;font-size:11px;">-</span>'}</td>
-          </tr>`).join('')}</tbody>
+          <thead><tr>
+            <th>User</th>
+            <th>Role</th>
+            <th>Tab Access</th>
+            <th>Actions</th>
+          </tr></thead>
+          <tbody>${users.map(u => {
+            const hidden = (u.hidden_tabs || '').split(',').filter(Boolean);
+            const isAdmin = u.role === 'admin';
+            return `<tr>
+              <td><strong>${u.username}</strong></td>
+              <td><span class="${isAdmin ? 'badge-admin' : 'badge-user'}">${u.role}</span></td>
+              <td><div style="display:flex;flex-wrap:wrap;gap:4px;">
+                ${ALL_TABS_MGMT.map(t => {
+                  const on = isAdmin ? true : !hidden.includes(t.id);
+                  return `<span class="tab-toggle ${on ? 'on' : 'off'}" data-user="${u.id}" data-tab="${t.id}" onclick="toggleTab(${u.id},'${t.id}',${isAdmin})"><i class="bi ${on ? 'bi-eye-fill' : 'bi-eye-slash-fill'}"></i> ${t.label}</span>`;
+                }).join('')}
+              </div></td>
+              <td>${!isAdmin ? `<button class="btn-danger-sm" onclick="deleteUser(${u.id})"><i class="bi bi-trash me-1"></i>Delete</button>` : '<span style="color:#445566;font-size:11px;">-</span>'}</td>
+            </tr>`;
+          }).join('')}</tbody>
         </table>`;
       });
     }
+
+    function getHiddenTabs(userId) {
+      const els = document.querySelectorAll(`.tab-toggle[data-user="${userId}"]`);
+      const hidden = [];
+      els.forEach(el => { if (el.classList.contains('off')) hidden.push(el.dataset.tab); });
+      return hidden.join(',');
+    }
+
+    function toggleTab(userId, tabId, isAdmin) {
+      if (isAdmin) return;
+      const el = document.querySelector(`.tab-toggle[data-user="${userId}"][data-tab="${tabId}"]`);
+      if (!el) return;
+      const isOn = el.classList.contains('on');
+      el.classList.toggle('on', !isOn);
+      el.classList.toggle('off', isOn);
+      el.querySelector('i').className = isOn ? 'bi bi-eye-slash-fill' : 'bi bi-eye-fill';
+      const hidden = getHiddenTabs(userId);
+      fetch('/api/users/' + userId, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({hidden_tabs: hidden})
+      });
+    }
+
     function deleteUser(id) {
       if (!confirm('Delete this user?')) return;
       fetch('/api/users/' + id, { method: 'DELETE' }).then(r => {

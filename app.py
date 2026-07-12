@@ -47,9 +47,16 @@ def _collect_and_cache(switch_dict):
 
 @app.context_processor
 def inject_user():
+    uid = session.get("user_id")
+    ht = ""
+    if uid:
+        u = db.get_user_by_id(uid)
+        if u:
+            ht = u.get("hidden_tabs", "")
     return {
         "current_user": session.get("username"),
         "current_role": session.get("role"),
+        "hidden_tabs": ht,
     }
 
 
@@ -142,15 +149,24 @@ def api_users():
     return jsonify(users)
 
 
-@app.route("/api/users/<int:user_id>", methods=["DELETE"])
+@app.route("/api/users/<int:user_id>", methods=["DELETE", "PUT"])
 @api_login_required
-def api_delete_user(user_id):
+def api_user_manage(user_id):
     if session.get("role") != "admin":
         return jsonify({"error": "Admin required"}), 403
-    if user_id == session["user_id"]:
-        return jsonify({"error": "Cannot delete yourself"}), 400
-    db.delete_user(user_id)
-    db.audit("user_deleted", f"Admin deleted user id {user_id}")
+    if request.method == "DELETE":
+        if user_id == session["user_id"]:
+            return jsonify({"error": "Cannot delete yourself"}), 400
+        db.delete_user(user_id)
+        db.audit("user_deleted", f"Admin deleted user id {user_id}")
+        return jsonify({"status": "ok"})
+    data = request.get_json() or {}
+    if "hidden_tabs" in data:
+        db.update_user_tabs(user_id, data["hidden_tabs"])
+        db.audit("user_updated", f"Admin updated tabs for user id {user_id}",
+                 details={"hidden_tabs": data["hidden_tabs"]})
+    if "password" in data and data["password"]:
+        db.change_password(user_id, data["password"])
     return jsonify({"status": "ok"})
 
 
@@ -179,7 +195,13 @@ def switch_detail(switch_id):
     switch = db.get_switch(switch_id)
     if not switch:
         return render_template("index.html", error="Switch not found")
-    return render_template("switch.html", switch=switch)
+    uid = session.get("user_id")
+    hidden = ""
+    if uid:
+        u = db.get_user_by_id(uid)
+        if u:
+            hidden = u.get("hidden_tabs", "")
+    return render_template("switch.html", switch=switch, current_hidden_tabs=hidden)
 
 
 @app.route("/logs")
@@ -387,6 +409,11 @@ def api_config():
 @app.route("/api/terminal/<int:switch_id>", methods=["POST"])
 @api_login_required
 def api_terminal(switch_id):
+    uid = session.get("user_id")
+    if uid:
+        u = db.get_user_by_id(uid)
+        if u and "console" in (u.get("hidden_tabs", "") or "").split(","):
+            return jsonify({"error": "Console access denied"}), 403
     sw = db.get_switch(switch_id)
     if not sw:
         return jsonify({"error": "Switch not found"}), 404

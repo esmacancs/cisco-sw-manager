@@ -137,7 +137,7 @@ function toggleTheme() {
   if (icon) icon.className = t === 'dark' ? 'bi bi-moon-stars-fill' : 'bi bi-sun-fill';
 })();
 </script>
-<script>window._switchId = {{ switch.id }};</script>
+<script>window._switchId = {{ switch.id }}; window._hiddenTabs = "{{ current_hidden_tabs or '' }}";</script>
 {% raw %}
   <script type="text/babel">
     const { useState, useEffect, useRef } = React;
@@ -834,7 +834,8 @@ function toggleTheme() {
       const [sw, setSw] = useState(null);
       const [platform, setPlatform] = useState('mds');
 
-      const getTabs = (plat) => ALL_TABS.filter(t => t.p.includes(plat));
+      const hiddenSet = new Set((window._hiddenTabs || '').split(',').filter(Boolean));
+      const getTabs = (plat) => ALL_TABS.filter(t => t.p.includes(plat) && !hiddenSet.has(t.id));
 
       const getDefaultTab = (plat) => {
         const tabs = getTabs(plat);

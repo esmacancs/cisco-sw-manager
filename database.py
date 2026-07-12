@@ -61,6 +61,9 @@ def _migrate_schema():
         cols = [r["name"] for r in conn.execute("PRAGMA table_info(switches)").fetchall()]
         if "site" not in cols:
             conn.execute("ALTER TABLE switches ADD COLUMN site TEXT DEFAULT ''")
+        ucols = [r["name"] for r in conn.execute("PRAGMA table_info(users)").fetchall()]
+        if "hidden_tabs" not in ucols:
+            conn.execute("ALTER TABLE users ADD COLUMN hidden_tabs TEXT DEFAULT ''")
 
 
 # ---------- Switches ----------
@@ -173,9 +176,10 @@ def get_audit_event_types():
 def create_user(username, password, role="user"):
     with _get_conn() as conn:
         try:
+            hidden = "console" if role == "user" else ""
             conn.execute(
-                "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-                (username, generate_password_hash(password), role),
+                "INSERT INTO users (username, password_hash, role, hidden_tabs) VALUES (?, ?, ?, ?)",
+                (username, generate_password_hash(password), role, hidden),
             )
             return True
         except sqlite3.IntegrityError:
@@ -192,13 +196,13 @@ def verify_user(username, password):
 
 def get_user_by_id(user_id):
     with _get_conn() as conn:
-        row = conn.execute("SELECT id, username, role, created_at FROM users WHERE id = ?", (user_id,)).fetchone()
+        row = conn.execute("SELECT id, username, role, created_at, hidden_tabs FROM users WHERE id = ?", (user_id,)).fetchone()
         return dict(row) if row else None
 
 
 def get_all_users():
     with _get_conn() as conn:
-        rows = conn.execute("SELECT id, username, role, created_at FROM users ORDER BY username").fetchall()
+        rows = conn.execute("SELECT id, username, role, created_at, hidden_tabs FROM users ORDER BY username").fetchall()
         return [dict(r) for r in rows]
 
 
@@ -211,6 +215,11 @@ def change_password(user_id, new_password):
 def delete_user(user_id):
     with _get_conn() as conn:
         conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+
+
+def update_user_tabs(user_id, hidden_tabs):
+    with _get_conn() as conn:
+        conn.execute("UPDATE users SET hidden_tabs = ? WHERE id = ?", (hidden_tabs, user_id))
 
 
 def ensure_admin_exists():
