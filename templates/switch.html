@@ -75,6 +75,18 @@
     ::-webkit-scrollbar-track { background: var(--bg-body); }
     ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
     ::-webkit-scrollbar-thumb:hover { background: var(--text-tertiary); }
+    .console-wrap { background: #0d1117; border: 1px solid #30363d; border-radius: 8px; overflow: hidden; }
+    .console-out { height: 400px; overflow-y: auto; padding: 12px; }
+    .console-pre { font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace; font-size: 13px; line-height: 1.5; color: #e6edf3; white-space: pre-wrap; word-break: break-all; margin: 0; }
+    .console-input-row { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-top: 1px solid #30363d; background: #161b22; }
+    .console-prompt { color: #4fc3f7; font-family: monospace; font-size: 14px; font-weight: 700; }
+    .console-input { flex: 1; background: #0d1117; border: 1px solid #30363d; color: #e6edf3; padding: 6px 10px; border-radius: 6px; font-family: 'Cascadia Code', 'Consolas', monospace; font-size: 13px; outline: none; }
+    .console-input:focus { border-color: #4fc3f7; }
+    .console-btn { background: #21262d; border: 1px solid #30363d; color: #c9d1d9; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+    .console-btn:hover { background: #30363d; color: #e6edf3; }
+    .console-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    .spin { animation: spin 1s linear infinite; display: inline-block; }
   </style>
   <script>
     (function() {
@@ -128,7 +140,7 @@ function toggleTheme() {
 <script>window._switchId = {{ switch.id }};</script>
 {% raw %}
   <script type="text/babel">
-    const { useState, useEffect } = React;
+    const { useState, useEffect, useRef } = React;
 
     const PLATFORM_META = {
       mds:   { label: 'MDS',   color: '#4fc3f7', icon: 'bi-hdd-stack-fill' },
@@ -153,6 +165,7 @@ function toggleTheme() {
       { id: 'accounting',   label: 'Accounting',       icon: 'bi-clock-history',  p: ['mds'] },
       { id: 'syslogs',      label: 'Syslogs',          icon: 'bi-journal-text',   p: ['mds','nexus','ios'] },
       { id: 'metrics',      label: 'Metrics',          icon: 'bi-graph-up',       p: ['mds','nexus','ios'] },
+      { id: 'console',      label: 'Console',          icon: 'bi-terminal-fill',  p: ['mds','nexus','ios'] },
     ];
 
     function Gauge({ value, label, color, max }) {
@@ -747,6 +760,73 @@ function toggleTheme() {
       );
     }
 
+    function ConsoleTable() {
+      const [cmd, setCmd] = useState('');
+      const [output, setOutput] = useState('');
+      const [running, setRunning] = useState(false);
+      const [history, setHistory] = useState([]);
+      const inputRef = useRef(null);
+      const outRef = useRef(null);
+
+      const execute = (command) => {
+        const c = command || cmd;
+        if (!c.trim() || running) return;
+        setRunning(true);
+        setOutput(prev => prev + '\n$ ' + c + '\n');
+        fetch('/api/terminal/' + window._switchId, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({command: c.trim()})
+        })
+          .then(r => r.json())
+          .then(res => {
+            setOutput(prev => prev + (res.output || res.error || '') + '\n');
+            setHistory(prev => [c.trim(), ...prev].slice(0, 50));
+            setRunning(false);
+          })
+          .catch(() => { setOutput(prev => prev + 'Request failed\n'); setRunning(false); });
+        setCmd('');
+      };
+
+      const handleKey = (e) => {
+        if (e.key === 'Enter') execute();
+      };
+
+      useEffect(() => {
+        if (outRef.current) outRef.current.scrollTop = outRef.current.scrollHeight;
+      }, [output]);
+
+      useEffect(() => {
+        if (inputRef.current) inputRef.current.focus();
+        const saved = localStorage.getItem('consoleOutput_' + window._switchId);
+        if (saved) setOutput(saved);
+      }, []);
+
+      useEffect(() => {
+        if (output) localStorage.setItem('consoleOutput_' + window._switchId, output);
+      }, [output]);
+
+      return (
+        <div className="console-wrap">
+          <div className="console-out" ref={outRef}>
+            <pre className="console-pre">{output || 'Type a command below and press Enter.'}</pre>
+          </div>
+          <div className="console-input-row">
+            <span className="console-prompt">$</span>
+            <input ref={inputRef} className="console-input" type="text" value={cmd}
+              onChange={e => setCmd(e.target.value)} onKeyDown={handleKey}
+              placeholder="show version, show run, etc." disabled={running} />
+            <button className="console-btn" onClick={() => execute()} disabled={running || !cmd.trim()}>
+              {running ? <i className="bi bi-arrow-repeat spin"></i> : <i className="bi bi-play-fill"></i>}
+            </button>
+            <button className="console-btn" onClick={() => { setOutput(''); localStorage.removeItem('consoleOutput_' + window._switchId); }} title="Clear">
+              <i className="bi bi-trash"></i>
+            </button>
+          </div>
+        </div>
+      );
+    }
+
     function DetailPage() {
       const [data, setData] = useState(null);
       const [loading, setLoading] = useState(true);
@@ -845,6 +925,7 @@ function toggleTheme() {
         accounting: <AccountingTable data={data.accounting} />,
         syslogs: <SyslogTable data={data.syslogs} />,
         metrics: <MetricsChart switchId={window._switchId} />,
+        console: <ConsoleTable />,
       };
 
       return (

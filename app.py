@@ -5,7 +5,7 @@ import uuid
 from functools import wraps
 from flask import Flask, render_template, request, redirect, url_for, jsonify, session
 import database as db
-from mds_collector import collect_switch
+from mds_collector import collect_switch, _build_ssh, _ssh_exec
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", uuid.uuid4().hex)
@@ -382,6 +382,28 @@ def api_logs():
 @app.route("/api/config")
 def api_config():
     return jsonify({"poll_interval": POLL_INTERVAL})
+
+
+@app.route("/api/terminal/<int:switch_id>", methods=["POST"])
+@api_login_required
+def api_terminal(switch_id):
+    sw = db.get_switch(switch_id)
+    if not sw:
+        return jsonify({"error": "Switch not found"}), 404
+    data = request.get_json() or {}
+    cmd = data.get("command", "").strip()
+    if not cmd:
+        return jsonify({"error": "No command"}), 400
+    try:
+        ssh = _build_ssh(sw["host"], sw["username"], sw["password"], sw["port"], timeout=15)
+        output = _ssh_exec(ssh, cmd + "\n", timeout=30)
+        ssh.close()
+        db.audit("terminal_command", f"Executed on {sw['label']}: {cmd[:80]}",
+                 switch_id=switch_id, switch_host=sw["host"],
+                 details={"cmd": cmd, "len": len(output) if output else 0})
+        return jsonify({"output": output or "(empty)"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 def _background_collect():
