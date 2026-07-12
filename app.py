@@ -454,4 +454,5 @@ if __name__ == "__main__":
     t = threading.Thread(target=_background_collect, daemon=True)
     t.start()
     db.audit("system_startup", "Cisco Switch Manager started")
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    debug_mode = os.environ.get("FLASK_DEBUG", "0") == "1"
+    app.run(host="0.0.0.0", port=5000, debug=debug_mode)

@@ -1,0 +1,16 @@
+services:
+  cisco-sw-manager:
+    build: .
+    container_name: cisco-sw-manager
+    ports:
+      - "5000:5000"
+    volumes:
+      - cisco_data:/app/data
+    environment:
+      - DATA_DIR=/app/data
+      - FLASK_SECRET_KEY=${FLASK_SECRET_KEY:-change-me-to-a-random-secret}
+      - FLASK_DEBUG=0
+    restart: unless-stopped
+
+volumes:
+  cisco_data:
