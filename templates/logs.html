@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Audit Logs - Cisco Switch Manager</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+  <style>
+    :root {
+      --bg-body: #0a0e1a;
+      --text-primary: #c8d6e5;
+      --text-secondary: #667788;
+      --text-tertiary: #556677;
+      --card-bg: linear-gradient(145deg, #111d2e, #0f1a2e);
+      --card-bg-solid: #0f1a2e;
+      --border: #1a3050;
+      --navbar-bg: linear-gradient(135deg, #0f1a2e 0%, #1a2a4a 100%);
+      --navbar-border: #1e3a5f;
+      --accent: #4fc3f7;
+      --accent-rgb: 79, 195, 247;
+    }
+    [data-theme="light"] {
+      --bg-body: #eef2f7;
+      --text-primary: #1a2332;
+      --text-secondary: #6b7c93;
+      --text-tertiary: #8899aa;
+      --card-bg: linear-gradient(145deg, #ffffff, #f5f7fa);
+      --card-bg-solid: #ffffff;
+      --border: #d0d8e4;
+      --navbar-bg: linear-gradient(135deg, #ffffff 0%, #e8ecf1 100%);
+      --navbar-border: #d0d8e4;
+      --accent: #2196f3;
+      --accent-rgb: 33, 150, 243;
+    }
+    body { background: var(--bg-body); color: var(--text-primary); font-family: 'Segoe UI', system-ui, sans-serif; }
+    .navbar { background: var(--navbar-bg) !important; border-bottom: 1px solid var(--navbar-border); padding: 10px 24px; }
+    .navbar-brand { font-weight: 700; color: var(--accent) !important; }
+    .card-dark { background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; }
+    .filter-btn { background: rgba(var(--accent-rgb), 0.08); border: 1px solid rgba(var(--accent-rgb), 0.2); color: var(--text-tertiary); border-radius: 20px; padding: 4px 14px; font-size: 11px; cursor: pointer; transition: all 0.2s; }
+    .filter-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .filter-btn.active { background: rgba(var(--accent-rgb), 0.15); border-color: var(--accent); color: var(--accent); }
+    .log-entry { padding: 12px 16px; border-left: 3px solid var(--border); margin-bottom: 4px; background: rgba(15, 26, 46, 0.5); border-radius: 0 8px 8px 0; transition: background 0.2s; }
+    .log-entry:hover { background: rgba(15, 26, 46, 0.9); }
+    .log-entry.refresh_success { border-left-color: #2ed573; }
+    .log-entry.refresh_failed { border-left-color: #ff4757; }
+    .log-entry.switch_added { border-left-color: var(--accent); }
+    .log-entry.switch_deleted { border-left-color: #ffa502; }
+    .log-entry.refresh_all { border-left-color: #a29bfe; }
+    .log-entry.system_startup { border-left-color: var(--text-secondary); }
+    .event-badge { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px; padding: 2px 10px; border-radius: 12px; }
+    .time-text { font-size: 11px; color: var(--text-tertiary); font-family: 'Cascadia Code', 'Fira Code', monospace; }
+    .stat-card { background: var(--card-bg-solid); border: 1px solid var(--border); border-radius: 8px; padding: 16px; text-align: center; }
+    .stat-value { font-size: 28px; font-weight: 700; }
+    .btn-theme { background: rgba(var(--accent-rgb), 0.1); border: 1px solid rgba(var(--accent-rgb), 0.25); color: var(--accent); border-radius: 8px; padding: 4px 10px; font-size: 14px; cursor: pointer; }
+    .btn-theme:hover { background: rgba(var(--accent-rgb), 0.2); }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: var(--bg-body); }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  </style>
+  <script>
+    (function() {
+      const t = localStorage.getItem('theme') || 'dark';
+      document.documentElement.setAttribute('data-theme', t);
+    })();
+  </script>
+</head>
+<body>
+  <nav class="navbar">
+    <div class="container-fluid px-0 d-flex align-items-center gap-3">
+      <a href="/" class="btn btn-sm btn-outline-secondary" style="border-color:#1a3050;color:#667788"><i class="bi bi-arrow-left"></i></a>
+      <span class="navbar-brand"><i class="bi bi-journal-text me-2"></i>Audit Logs</span>
+      <button class="btn btn-sm btn-theme" onclick="toggleTheme()"><i class="bi bi-moon-stars-fill" id="themeIconLog"></i></button>
+      <span class="ms-auto" style="color:var(--text-secondary);font-size:12px;"><i class="bi bi-person-fill me-1"></i>{{ current_user or 'guest' }}</span>
+      <a href="/logout" class="btn btn-sm" style="border-color:var(--border);color:var(--text-secondary)"><i class="bi bi-box-arrow-right"></i></a>
+    </div>
+  </nav>
+  <div id="root" class="container-fluid px-4 py-3"></div>
+{% raw %}
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    const EVENT_COLORS = {
+      refresh_success: '#2ed573',
+      refresh_failed: '#ff4757',
+      switch_added: '#4fc3f7',
+      switch_deleted: '#ffa502',
+      refresh_all: '#a29bfe',
+      system_startup: '#667788',
+    };
+
+    const EVENT_LABELS = {
+      refresh_success: 'Refresh OK',
+      refresh_failed: 'Refresh Failed',
+      switch_added: 'Switch Added',
+      switch_deleted: 'Switch Deleted',
+      refresh_all: 'Bulk Refresh',
+      system_startup: 'System',
+    };
+
+    function LogsPage() {
+      const [logs, setLogs] = useState([]);
+      const [types, setTypes] = useState([]);
+      const [stats, setStats] = useState({ total: 0, by_type: [] });
+      const [filter, setFilter] = useState(null);
+      const [loading, setLoading] = useState(true);
+
+      const loadLogs = (eventType) => {
+        setLoading(true);
+        let url = '/api/logs?limit=500';
+        if (eventType) url += '&event_type=' + encodeURIComponent(eventType);
+        fetch(url)
+          .then(r => r.json())
+          .then(res => { setLogs(res.logs); setTypes(res.event_types); setStats(res.stats); setLoading(false); })
+          .catch(() => setLoading(false));
+      };
+
+      useEffect(() => { loadLogs(null); }, []);
+
+      const toggleFilter = (t) => {
+        const next = filter === t ? null : t;
+        setFilter(next);
+        loadLogs(next);
+      };
+
+      const fmtTime = (ts) => {
+        const d = new Date(ts + 'Z');
+        return d.toLocaleString();
+      };
+
+      return (
+        <>
+          <div className="row g-3 mb-3">
+            <div className="col-md-3">
+              <div className="stat-card">
+                <div className="stat-value" style={{color:'#4fc3f7'}}>{stats.total}</div>
+                <div className="metric-label" style={{marginTop:4}}>Total Events</div>
+              </div>
+            </div>
+            {stats.by_type.slice(0, 4).map(s => (
+              <div className="col-md-3" key={s.event_type}>
+                <div className="stat-card">
+                  <div className="stat-value" style={{color: EVENT_COLORS[s.event_type] || '#8899aa'}}>{s.c}</div>
+                  <div className="metric-label" style={{marginTop:4}}>{EVENT_LABELS[s.event_type] || s.event_type}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="card-dark p-3 mb-3">
+            <div className="d-flex flex-wrap gap-2 align-items-center">
+              <span className="metric-label" style={{marginRight:8}}>Filter:</span>
+              <button className={`filter-btn ${filter === null ? 'active' : ''}`} onClick={() => toggleFilter(null)}>All</button>
+              {types.map(t => (
+                <button key={t}
+                  className={`filter-btn ${filter === t ? 'active' : ''}`}
+                  style={filter === t ? {borderColor: EVENT_COLORS[t] || '#4fc3f7', color: EVENT_COLORS[t] || '#4fc3f7'} : {}}
+                  onClick={() => toggleFilter(t)}>
+                  {EVENT_LABELS[t] || t}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="card-dark p-0">
+            {loading ? (
+              <div className="text-center py-5"><i className="bi bi-arrow-clockwise fs-1" style={{color:'#4fc3f7'}}></i></div>
+            ) : logs.length === 0 ? (
+              <div className="text-center py-5"><p style={{color:'#667788'}}>No log entries found</p></div>
+            ) : (
+              logs.map(log => {
+                const color = EVENT_COLORS[log.event_type] || '#667788';
+                return (
+                  <div key={log.id} className={`log-entry ${log.event_type}`}>
+                    <div className="d-flex justify-content-between align-items-start">
+                      <div className="d-flex align-items-center gap-2 mb-1">
+                        <span className="event-badge" style={{background: color + '22', color: color, border: '1px solid ' + color + '44'}}>
+                          {EVENT_LABELS[log.event_type] || log.event_type}
+                        </span>
+                        {log.switch_host && <small style={{color:'#667788'}}>{log.switch_host}</small>}
+                      </div>
+                      <span className="time-text">{fmtTime(log.timestamp)}</span>
+                    </div>
+                    <div style={{color:'#c8d6e5', fontSize:13}}>{log.message}</div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<LogsPage />);
+  </script>
+{% endraw %}
+<script>
+function toggleTheme() {
+  const html = document.documentElement;
+  const next = html.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+  html.setAttribute('data-theme', next);
+  localStorage.setItem('theme', next);
+  const icon = document.getElementById('themeIconLog');
+  if (icon) icon.className = next === 'dark' ? 'bi bi-moon-stars-fill' : 'bi bi-sun-fill';
+}
+(function() {
+  const t = localStorage.getItem('theme') || 'dark';
+  const icon = document.getElementById('themeIconLog');
+  if (icon) icon.className = t === 'dark' ? 'bi bi-moon-stars-fill' : 'bi bi-sun-fill';
+})();
+</script>
+</body>
+</html>

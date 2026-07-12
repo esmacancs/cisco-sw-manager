@@ -1,0 +1,910 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ switch.label }} - Cisco Switch Manager</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg-body: #0a0e1a;
+      --text-primary: #c8d6e5;
+      --text-secondary: #667788;
+      --text-tertiary: #556677;
+      --card-bg: linear-gradient(145deg, #111d2e, #0f1a2e);
+      --card-bg-solid: #0f1a2e;
+      --border: #1a3050;
+      --navbar-bg: linear-gradient(135deg, #0f1a2e 0%, #1a2a4a 100%);
+      --navbar-border: #1e3a5f;
+      --accent: #4fc3f7;
+      --metric-value: #e8edf2;
+      --accent-rgb: 79, 195, 247;
+    }
+    [data-theme="light"] {
+      --bg-body: #eef2f7;
+      --text-primary: #1a2332;
+      --text-secondary: #6b7c93;
+      --text-tertiary: #8899aa;
+      --card-bg: linear-gradient(145deg, #ffffff, #f5f7fa);
+      --card-bg-solid: #ffffff;
+      --border: #d0d8e4;
+      --navbar-bg: linear-gradient(135deg, #ffffff 0%, #e8ecf1 100%);
+      --navbar-border: #d0d8e4;
+      --accent: #2196f3;
+      --metric-value: #1a2332;
+      --accent-rgb: 33, 150, 243;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: var(--bg-body); color: var(--text-primary); font-family: 'Segoe UI', system-ui, sans-serif; }
+    .navbar { background: var(--navbar-bg) !important; border-bottom: 1px solid var(--navbar-border); padding: 10px 24px; }
+    .navbar-brand { font-weight: 700; font-size: 16px; color: var(--accent) !important; }
+    .card-dark { background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; }
+    .card-dark-small { background: var(--card-bg-solid); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+    .metric-value-lg { font-size: 22px; font-weight: 700; }
+    .metric-value { font-size: 14px; font-weight: 600; color: var(--metric-value); }
+    .metric-label { font-size: 10px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px; }
+    .gauge-lg { position: relative; width: 120px; height: 120px; margin: 0 auto; }
+    .gauge-lg svg { transform: rotate(-90deg); }
+    .gauge-lg-text { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; }
+    .gauge-lg-text .val { font-size: 24px; font-weight: 700; display: block; }
+    .gauge-lg-text .lbl { font-size: 10px; color: var(--text-secondary); text-transform: uppercase; }
+    .tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border); margin-bottom: 16px; overflow-x: auto; }
+    .tab { padding: 8px 18px; font-size: 12px; font-weight: 500; color: var(--text-secondary); cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.2s; white-space: nowrap; }
+    .tab:hover { color: var(--accent); }
+    .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .table-cisco { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .table-cisco thead th { background: rgba(var(--accent-rgb), 0.08); color: var(--accent); padding: 8px 10px; text-align: left; font-weight: 500; text-transform: uppercase; font-size: 10px; letter-spacing: 0.3px; border-bottom: 1px solid var(--border); }
+    .table-cisco tbody td { padding: 6px 10px; border-bottom: 1px solid rgba(var(--accent-rgb), 0.08); color: var(--text-primary); }
+    .table-cisco tbody tr:hover { background: rgba(var(--accent-rgb), 0.04); }
+    .badge-up { background: rgba(46, 213, 115, 0.15); color: #2ed573; border: 1px solid rgba(46, 213, 115, 0.3); padding: 2px 10px; border-radius: 12px; font-size: 10px; font-weight: 600; }
+    .badge-down { background: rgba(255, 71, 87, 0.15); color: #ff4757; border: 1px solid rgba(255, 71, 87, 0.3); padding: 2px 10px; border-radius: 12px; font-size: 10px; font-weight: 600; }
+    .badge-warn { background: rgba(255, 165, 2, 0.15); color: #ffa502; border: 1px solid rgba(255, 165, 2, 0.3); padding: 2px 10px; border-radius: 12px; font-size: 10px; font-weight: 600; }
+    .mono { font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 11px; }
+    .btn-refresh { background: rgba(var(--accent-rgb), 0.1); border: 1px solid rgba(var(--accent-rgb), 0.3); color: var(--accent); }
+    .btn-refresh:hover { background: rgba(var(--accent-rgb), 0.2); color: var(--accent); }
+    .refresh-select { background: var(--card-bg-solid); border: 1px solid var(--border); color: var(--accent); border-radius: 6px; padding: 2px 8px; font-size: 11px; font-weight: 600; cursor: pointer; outline: none; }
+    .refresh-select:focus { border-color: var(--accent); }
+    .btn-theme { background: rgba(var(--accent-rgb), 0.1); border: 1px solid rgba(var(--accent-rgb), 0.25); color: var(--accent); border-radius: 8px; padding: 4px 10px; font-size: 14px; cursor: pointer; }
+    .btn-theme:hover { background: rgba(var(--accent-rgb), 0.2); }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: var(--bg-body); }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--text-tertiary); }
+  </style>
+  <script>
+    (function() {
+      const t = localStorage.getItem('theme') || 'dark';
+      document.documentElement.setAttribute('data-theme', t);
+    })();
+  </script>
+</head>
+<body>
+  <nav class="navbar">
+    <div class="container-fluid px-0">
+      <div class="d-flex align-items-center gap-3">
+        <a href="/" class="btn btn-sm btn-outline-secondary" style="border-color:#1a3050;color:#667788"><i class="bi bi-arrow-left"></i></a>
+        <span class="navbar-brand">{{ switch.label }}</span>
+        <small style="color:#556677">{{ switch.host }}</small>
+      </div>
+      <div class="d-flex align-items-center gap-2">
+        <span id="platformBadge" class="d-none" style="font-size:10px;font-weight:600;padding:2px 10px;border-radius:12px;"></span>
+        <span class="d-none d-md-inline" style="color:var(--text-secondary);font-size:12px;"><i class="bi bi-person-fill me-1"></i>{{ current_user or 'guest' }}</span>
+        <button class="btn btn-sm btn-theme" onclick="toggleTheme()"><i class="bi bi-moon-stars-fill" id="themeIconSw"></i></button>
+        <a href="/logs" class="btn btn-sm btn-outline-secondary" style="border-color:var(--border);color:var(--text-secondary)"><i class="bi bi-journal-text"></i></a>
+        <button class="btn btn-sm btn-refresh" onclick="window.refreshSwitch()"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
+        <select id="detailRefreshSelect" class="refresh-select" onchange="window.setDetailRefresh(Number(this.value))">
+          <option value="0">Off</option>
+          <option value="10">10s</option>
+          <option value="30" selected>30s</option>
+          <option value="60">60s</option>
+          <option value="120">120s</option>
+        </select>
+        <a href="/logout" class="btn btn-sm" style="border-color:var(--border);color:var(--text-secondary)"><i class="bi bi-box-arrow-right"></i></a>
+      </div>
+    </div>
+  </nav>
+
+  <div id="root" class="container-fluid px-4 py-3"></div>
+<script>
+function toggleTheme() {
+  const html = document.documentElement;
+  const next = html.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+  html.setAttribute('data-theme', next);
+  localStorage.setItem('theme', next);
+  const icon = document.getElementById('themeIconSw');
+  if (icon) icon.className = next === 'dark' ? 'bi bi-moon-stars-fill' : 'bi bi-sun-fill';
+}
+(function() {
+  const t = localStorage.getItem('theme') || 'dark';
+  const icon = document.getElementById('themeIconSw');
+  if (icon) icon.className = t === 'dark' ? 'bi bi-moon-stars-fill' : 'bi bi-sun-fill';
+})();
+</script>
+<script>window._switchId = {{ switch.id }};</script>
+{% raw %}
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    const PLATFORM_META = {
+      mds:   { label: 'MDS',   color: '#4fc3f7', icon: 'bi-hdd-stack-fill' },
+      nexus: { label: 'Nexus', color: '#2ed573', icon: 'bi-server' },
+      ios:   { label: 'IOS',   color: '#ffa502', icon: 'bi-router' },
+    };
+    const ALL_TABS = [
+      { id: 'interfaces',   label: 'Interfaces',     icon: 'bi-plug-fill',      p: ['mds','nexus','ios'] },
+      { id: 'vsans',        label: 'VSANs',           icon: 'bi-diagram-3-fill', p: ['mds'] },
+      { id: 'vlans',        label: 'VLANs',           icon: 'bi-diagram-3-fill', p: ['nexus','ios'] },
+      { id: 'modules',      label: 'Modules',         icon: 'bi-cpu-fill',       p: ['mds','nexus'] },
+      { id: 'inventory',    label: 'Inventory',       icon: 'bi-box-seam-fill',  p: ['mds','nexus','ios'] },
+      { id: 'flogi',        label: 'FLOGI',           icon: 'bi-hdd-network-fill',p: ['mds'] },
+      { id: 'fcns',         label: 'FCNS',            icon: 'bi-hdd-stack-fill', p: ['mds'] },
+      { id: 'zoning',       label: 'Zoning',          icon: 'bi-shield-fill',    p: ['mds'] },
+      { id: 'environment',  label: 'Environment',     icon: 'bi-thermometer-half',p: ['mds','nexus','ios'] },
+      { id: 'portchannels', label: 'Port Channels',   icon: 'bi-layers-fill',    p: ['mds','nexus','ios'] },
+      { id: 'devaliases',   label: 'Device Aliases',  icon: 'bi-tags-fill',      p: ['mds'] },
+      { id: 'portsecurity', label: 'Port Security',   icon: 'bi-lock-fill',      p: ['mds'] },
+      { id: 'scsitargets',  label: 'SCSI Targets',    icon: 'bi-database-fill',  p: ['mds'] },
+      { id: 'storage',      label: 'Storage',          icon: 'bi-hdd-fill',       p: ['mds','nexus','ios'] },
+      { id: 'accounting',   label: 'Accounting',       icon: 'bi-clock-history',  p: ['mds'] },
+      { id: 'syslogs',      label: 'Syslogs',          icon: 'bi-journal-text',   p: ['mds','nexus','ios'] },
+      { id: 'metrics',      label: 'Metrics',          icon: 'bi-graph-up',       p: ['mds','nexus','ios'] },
+    ];
+
+    function Gauge({ value, label, color, max }) {
+      const radius = 50, circ = 2 * Math.PI * radius;
+      const v = typeof value === 'number' ? Math.min(value, max) : 0;
+      const offset = circ - (v / max) * circ;
+      return (
+        <div className="gauge-lg">
+          <svg width="120" height="120" viewBox="0 0 120 120">
+            <circle fill="none" stroke="#1a3050" strokeWidth="8" cx="60" cy="60" r={radius} />
+            <circle fill="none" stroke={color} strokeWidth="8" strokeLinecap="round"
+              cx="60" cy="60" r={radius} strokeDasharray={circ} strokeDashoffset={offset}
+              style={{ transition: 'stroke-dashoffset 1.5s ease' }} />
+          </svg>
+          <div className="gauge-lg-text">
+            <span className="val" style={{ color }}>{v}{label === 'CPU' ? '%' : '%'}</span>
+            <span className="lbl">{label}</span>
+          </div>
+        </div>
+      );
+    }
+
+    function InfoCard({ icon, label, value, color }) {
+      return (
+        <div className="card-dark-small text-center">
+          <i className={`bi ${icon}`} style={{ fontSize: 20, color: color || '#4fc3f7', marginBottom: 6 }}></i>
+          <div className="metric-label">{label}</div>
+          <div className="metric-value-lg" style={{ color: color || '#e8edf2' }}>{String(value)}</div>
+        </div>
+      );
+    }
+
+    function TabTable({ columns, rows, renderRow }) {
+      if (!rows || rows.length === 0) return <p style={{ color: '#667788', padding: 20, textAlign: 'center' }}>No data available</p>;
+      return (
+        <div style={{ overflowX: 'auto' }}>
+          <table className="table-cisco">
+            <thead><tr>{columns.map(c => <th key={c.key}>{c.label}</th>)}</tr></thead>
+            <tbody>{rows.map((row, i) => <tr key={i}>{renderRow(row, i)}</tr>)}</tbody>
+          </table>
+        </div>
+      );
+    }
+
+    function InterfaceTable({ data }) {
+      if (!data || data.length === 0) return <p style={{ color: '#667788', padding: 20, textAlign: 'center' }}>No interfaces</p>;
+      const first = data[0];
+      const isMds = first.vsan !== undefined;
+      if (isMds) {
+        const cols = [
+          { key: 'name', label: 'Interface' }, { key: 'vsan', label: 'VSAN' },
+          { key: 'admin_mode', label: 'Admin' }, { key: 'status', label: 'Status' },
+          { key: 'sfp', label: 'SFP' }, { key: 'oper_mode', label: 'Op Mode' },
+          { key: 'oper_speed', label: 'Speed' },
+        ];
+        return (<TabTable columns={cols} rows={data} renderRow={(r) => (
+          <><td><strong>{r.name}</strong></td><td>{r.vsan}</td><td>{r.admin_mode}</td>
+            <td><span className={r.status === 'up' || r.status === 'trunking' ? 'badge-up' : 'badge-down'}>{r.status}</span></td>
+            <td>{r.sfp}</td><td>{r.oper_mode}</td><td>{r.oper_speed}</td></>
+        )} />);
+      }
+      const hasDesc = first.description !== undefined;
+      const cols = [
+        { key: 'name', label: 'Interface' }, { key: 'status', label: 'Status' },
+        ...(hasDesc ? [{ key: 'description', label: 'Description' }] : []),
+        { key: 'vlan', label: 'VLAN' }, { key: 'duplex', label: 'Duplex' },
+        { key: 'speed', label: 'Speed' }, { key: 'type', label: 'Type' },
+      ];
+      return (<TabTable columns={cols} rows={data} renderRow={(r) => (
+        <><td><strong>{r.name}</strong></td>
+          <td><span className={r.status === 'up' || r.status === 'connected' || r.status === 'trunking' ? 'badge-up' : 'badge-down'}>{r.status}</span></td>
+          {hasDesc && <td style={{fontSize:11, maxWidth:180, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>{r.description || ''}</td>}
+          <td>{r.vlan}</td><td>{r.duplex}</td><td>{r.speed}</td><td style={{fontSize:10}}>{r.type}</td></>
+      )} />);
+    }
+
+    function VSANTable({ data }) {
+      if (!data || data.length === 0) return <p style={{ color: '#667788', padding: 20, textAlign: 'center' }}>No data</p>;
+      const first = data[0];
+      const stateKey = first.state !== undefined ? 'state' : 'status';
+      const cols = [
+        { key: 'id', label: 'ID' },
+        { key: 'name', label: 'Name' },
+        { key: stateKey, label: stateKey === 'state' ? 'State' : 'Status' },
+      ];
+      if (first.ports !== undefined) cols.push({ key: 'ports', label: 'Ports' });
+      return (
+        <TabTable columns={cols} rows={data} renderRow={(r) => (
+          <>
+            <td>{r.id}</td>
+            <td>{r.name}</td>
+            <td><span className={(r[stateKey] === 'active' || r[stateKey] === 'up' || r[stateKey] === 'act') ? 'badge-up' : 'badge-warn'}>{r[stateKey]}</span></td>
+            {r.ports !== undefined && <td style={{fontSize:10, maxWidth:200, overflow:'hidden', textOverflow:'ellipsis'}}>{r.ports || ''}</td>}
+          </>
+        )} />
+      );
+    }
+
+    function ModuleTable({ data }) {
+      const cols = [
+        { key: 'mod', label: 'Mod' },
+        { key: 'type', label: 'Type' },
+        { key: 'model', label: 'Model' },
+        { key: 'status', label: 'Status' },
+      ];
+      return (
+        <TabTable columns={cols} rows={data} renderRow={(r) => (
+          <>
+            <td>{r.mod}</td>
+            <td>{r.type}</td>
+            <td className="mono">{r.model}</td>
+            <td><span className={r.status === 'active' || r.status === 'ok' ? 'badge-up' : 'badge-warn'}>{r.status}</span></td>
+          </>
+        )} />
+      );
+    }
+
+    function InventoryTable({ data }) {
+      const cols = [
+        { key: 'name', label: 'Name' },
+        { key: 'descr', label: 'Description' },
+        { key: 'pid', label: 'PID' },
+        { key: 'sn', label: 'Serial' },
+      ];
+      return (
+        <TabTable columns={cols} rows={data} renderRow={(r) => (
+          <>
+            <td>{r.name}</td>
+            <td>{r.descr || '-'}</td>
+            <td className="mono">{r.pid || '-'}</td>
+            <td className="mono">{r.sn || '-'}</td>
+          </>
+        )} />
+      );
+    }
+
+    function FLOGIEntTable({ data }) {
+      const cols = [
+        { key: 'interface', label: 'Interface' },
+        { key: 'vsan', label: 'VSAN' },
+        { key: 'fcid', label: 'FCID' },
+        { key: 'port_name', label: 'Port Name' },
+        { key: 'node_name', label: 'Node Name' },
+      ];
+      return (
+        <TabTable columns={cols} rows={data} renderRow={(r) => (
+          <>
+            <td>{r.interface}</td>
+            <td>{r.vsan}</td>
+            <td className="mono">{r.fcid}</td>
+            <td className="mono" style={{fontSize:10}}>{r.port_name}</td>
+            <td className="mono" style={{fontSize:10}}>{r.node_name}</td>
+          </>
+        )} />
+      );
+    }
+
+    function FCNSEntTable({ data }) {
+      const cols = [
+        { key: 'vsan', label: 'VSAN' },
+        { key: 'fcid', label: 'FCID' },
+        { key: 'type', label: 'Type' },
+        { key: 'pwwn', label: 'PWWN' },
+        { key: 'vendor', label: 'Vendor' },
+        { key: 'fc4', label: 'FC4 Features' },
+      ];
+      return (
+        <TabTable columns={cols} rows={data} renderRow={(r) => (
+          <>
+            <td>{r.vsan}</td>
+            <td className="mono">{r.fcid}</td>
+            <td>{r.type}</td>
+            <td className="mono" style={{fontSize:10}}>{r.pwwn}</td>
+            <td>{r.vendor || '-'}</td>
+            <td style={{fontSize:10}}>{r.fc4_features || '-'}</td>
+          </>
+        )} />
+      );
+    }
+
+    const SEV_COLORS = {
+      '0': '#ff4757', '1': '#ff4757', '2': '#ff6b81', '3': '#ffa502',
+      '4': '#ffda79', '5': '#4fc3f7', '6': '#667788', '7': '#556677',
+    };
+
+    function SyslogTable({ data }) {
+      if (!data || data.length === 0) return <p style={{ color: '#667788', padding: 20, textAlign: 'center' }}>No syslog entries</p>;
+      const cols = [
+        { key: 'ts', label: 'Timestamp' },
+        { key: 'facility', label: 'Facility' },
+        { key: 'sev', label: 'Sev' },
+        { key: 'mnemonic', label: 'Mnemonic' },
+        { key: 'message', label: 'Message' },
+      ];
+      return (
+        <div style={{ overflowX: 'auto', maxHeight: 500, overflowY: 'auto' }}>
+          <table className="table-cisco">
+            <thead><tr>{cols.map(c => <th key={c.key}>{c.label}</th>)}</tr></thead>
+            <tbody>
+              {data.map((r, i) => {
+                const sevColor = SEV_COLORS[r.severity] || '#667788';
+                return (
+                  <tr key={i}>
+                    <td className="mono" style={{fontSize:10, whiteSpace:'nowrap'}}>{r.timestamp}</td>
+                    <td><span className="badge-up" style={{background: sevColor + '22', color: sevColor, border: '1px solid ' + sevColor + '44'}}>{r.facility}</span></td>
+                    <td style={{textAlign:'center'}}><span style={{color: sevColor, fontWeight:700}}>{r.severity}</span></td>
+                    <td className="mono">{r.mnemonic}</td>
+                    <td style={{fontSize:11}}>{r.message}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      );
+    }
+
+    function ZoningTable({ data }) {
+      if (!data || data.length === 0) return <p style={{ color: '#667788', padding: 20, textAlign: 'center' }}>No active zoneset</p>;
+      return (
+        <div>
+          {data.map((zs, i) => (
+            <div key={i} className="mb-3">
+              <div style={{ color: '#4fc3f7', fontWeight: 600, fontSize: 13, marginBottom: 6 }}>
+                Zoneset: {zs.name} (VSAN {zs.vsan})
+              </div>
+              {zs.zones.map((z, j) => (
+                <div key={j} style={{ marginBottom: 4, paddingLeft: 16 }}>
+                  <div style={{ color: '#ffa502', fontSize: 12, fontWeight: 500 }}>Zone: {z.name} (VSAN {z.vsan})</div>
+                  <table className="table-cisco" style={{ marginTop: 2 }}>
+                    <thead><tr><th style={{fontSize:9}}>FCID</th><th style={{fontSize:9}}>PWWN</th></tr></thead>
+                    <tbody>
+                      {z.members.map((m, k) => (
+                        <tr key={k}>
+                          <td className="mono">{m.fcid}</td>
+                          <td className="mono" style={{fontSize:10}}>{m.pwwn}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    function EnvironmentTable({ data }) {
+      if (!data) return <p style={{ color: '#667788', padding: 20, textAlign: 'center' }}>No environment data</p>;
+      return (
+        <div>
+          {data.power_supplies && data.power_supplies.length > 0 && (
+            <div className="mb-3">
+              <div style={{ color: '#4fc3f7', fontWeight: 600, fontSize: 13, marginBottom: 6 }}>Power Supplies</div>
+              <table className="table-cisco">
+                <thead><tr><th>PS</th><th>Model</th><th>Watts</th><th>Amp</th><th>Status</th></tr></thead>
+                <tbody>
+                  {data.power_supplies.map((ps, i) => (
+                    <tr key={i}>
+                      <td>{ps.ps}</td>
+                      <td className="mono">{ps.model}</td>
+                      <td>{ps.watts}</td>
+                      <td>{ps.amp}</td>
+                      <td><span className={ps.status === 'Ok' ? 'badge-up' : 'badge-warn'}>{ps.status}</span></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {data.fans && data.fans.length > 0 && (
+            <div className="mb-3">
+              <div style={{ color: '#4fc3f7', fontWeight: 600, fontSize: 13, marginBottom: 6 }}>Fans</div>
+              <table className="table-cisco">
+                <thead><tr><th>Name</th><th>Model</th><th>Status</th><th>Airflow</th><th>Speed (RPM)</th></tr></thead>
+                <tbody>
+                  {data.fans.map((f, i) => (
+                    <tr key={i}>
+                      <td>{f.name}</td>
+                      <td>{f.model}</td>
+                      <td><span className={f.status === 'Ok' ? 'badge-up' : 'badge-warn'}>{f.status}</span></td>
+                      <td>{f.airflow}</td>
+                      <td className="mono">{f.speed_rpm}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {data.temperatures && data.temperatures.length > 0 && (
+            <div className="mb-3">
+              <div style={{ color: '#4fc3f7', fontWeight: 600, fontSize: 13, marginBottom: 6 }}>Temperatures</div>
+              <table className="table-cisco">
+                <thead><tr><th>Module</th><th>Sensor</th><th>Major&deg;C</th><th>Minor&deg;C</th><th>Current&deg;C</th><th>Status</th></tr></thead>
+                <tbody>
+                  {data.temperatures.map((t, i) => (
+                    <tr key={i}>
+                      <td>{t.module}</td>
+                      <td>{t.sensor}</td>
+                      <td>{t.major_thresh}</td>
+                      <td>{t.minor_thresh}</td>
+                      <td><strong>{t.current_temp}</strong></td>
+                      <td><span className={t.status === 'Ok' ? 'badge-up' : 'badge-warn'}>{t.status}</span></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {data.power_summary && data.power_summary.capacity_w && (
+            <div className="d-flex gap-4 flex-wrap">
+              <div className="stat-chip">Capacity: {data.power_summary.capacity_w}W</div>
+              <div className="stat-chip">Allocated: {data.power_summary.allocated_w}W</div>
+              <div className="stat-chip">Available: {data.power_summary.available_w}W</div>
+              <div className="stat-chip">Redundancy: {data.power_summary.redundancy_mode}</div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    function PortChannelTable({ data }) {
+      const cols = [
+        { key: 'interface', label: 'Interface' },
+        { key: 'total_ports', label: 'Total Ports' },
+        { key: 'oper_ports', label: 'Oper Ports' },
+        { key: 'first_oper_port', label: 'First Oper Port' },
+      ];
+      return (
+        <TabTable columns={cols} rows={data} renderRow={(r) => (
+          <>
+            <td><strong>{r.interface}</strong></td>
+            <td>{r.total_ports}</td>
+            <td>{r.oper_ports}</td>
+            <td className="mono">{r.first_oper_port || '-'}</td>
+          </>
+        )} />
+      );
+    }
+
+    function DeviceAliasTable({ data }) {
+      const cols = [
+        { key: 'name', label: 'Name' },
+        { key: 'pwwn', label: 'PWWN' },
+      ];
+      return (
+        <TabTable columns={cols} rows={data} renderRow={(r) => (
+          <>
+            <td>{r.name}</td>
+            <td className="mono">{r.pwwn}</td>
+          </>
+        )} />
+      );
+    }
+
+    function PortSecurityTable({ data }) {
+      const cols = [
+        { key: 'interface', label: 'Interface' },
+        { key: 'vsan', label: 'VSAN' },
+        { key: 'pwwn', label: 'PWWN' },
+      ];
+      return (
+        <TabTable columns={cols} rows={data} renderRow={(r) => (
+          <>
+            <td>{r.interface}</td>
+            <td>{r.vsan}</td>
+            <td className="mono">{r.pwwn}</td>
+          </>
+        )} />
+      );
+    }
+
+    function SCSITargetTable({ data }) {
+      const cols = [
+        { key: 'target', label: 'Target' },
+        { key: 'vsan', label: 'VSAN' },
+      ];
+      return (
+        <TabTable columns={cols} rows={data} renderRow={(r) => (
+          <>
+            <td className="mono">{r.target}</td>
+            <td>{r.vsan}</td>
+          </>
+        )} />
+      );
+    }
+
+    function AccountingTable({ data }) {
+      if (!data || data.length === 0) return <p style={{ color: '#667788', padding: 20, textAlign: 'center' }}>No accounting log entries</p>;
+      const cols = [
+        { key: 'ts', label: 'Timestamp' },
+        { key: 'user', label: 'User' },
+        { key: 'type', label: 'Type' },
+        { key: 'command', label: 'Command' },
+      ];
+      return (
+        <div style={{ overflowX: 'auto', maxHeight: 500, overflowY: 'auto' }}>
+          <table className="table-cisco">
+            <thead><tr>{cols.map(c => <th key={c.key}>{c.label}</th>)}</tr></thead>
+            <tbody>
+              {data.map((r, i) => (
+                <tr key={i}>
+                  <td className="mono" style={{fontSize:10, whiteSpace:'nowrap'}}>{r.timestamp}</td>
+                  <td>{r.user}</td>
+                  <td><span className="badge-warn">{r.type}</span></td>
+                  <td style={{fontSize:11}}>{r.command}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+    }
+
+    function formatBytes(n) {
+      if (!n || n === 0) return '0 B';
+      const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+      let i = 0;
+      let v = n;
+      while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+      return v.toFixed(1) + ' ' + units[i];
+    }
+
+    function StorageTable({ boot, bootflash }) {
+      const usage = bootflash?.usage || {};
+      const files = bootflash?.files || [];
+      return (
+        <div>
+          <div className="row g-2 mb-3">
+            <div className="col-md-4">
+              <div className="card-dark-small text-center">
+                <div className="metric-label">Bootflash Total</div>
+                <div className="metric-value-lg" style={{color:'#4fc3f7'}}>{formatBytes(usage.total)}</div>
+              </div>
+            </div>
+            <div className="col-md-4">
+              <div className="card-dark-small text-center">
+                <div className="metric-label">Used</div>
+                <div className="metric-value-lg" style={{color:'#ffa502'}}>{formatBytes(usage.used)}</div>
+              </div>
+            </div>
+            <div className="col-md-4">
+              <div className="card-dark-small text-center">
+                <div className="metric-label">Free</div>
+                <div className="metric-value-lg" style={{color:'#2ed573'}}>{formatBytes(usage.free)}</div>
+              </div>
+            </div>
+          </div>
+          {usage.total > 0 && (
+            <div style={{width:'100%',height:6,background:'#1a3050',borderRadius:3,overflow:'hidden',marginBottom:16}}>
+              <div style={{width:(usage.used/usage.total*100)+'%',height:'100%',background:usage.used/usage.total>0.8?'#ff4757':'#4fc3f7',borderRadius:3}}></div>
+            </div>
+          )}
+          {boot && boot.current && (
+            <div className="mb-3">
+              <div style={{ color: '#4fc3f7', fontWeight: 600, fontSize: 13, marginBottom: 6 }}>Boot Variables</div>
+              <table className="table-cisco">
+                <thead><tr><th>Variable</th><th>Value</th></tr></thead>
+                <tbody>
+                  {Object.entries(boot.current).map(([k, v], i) => (
+                    <tr key={i}>
+                      <td className="mono">{k}</td>
+                      <td className="mono" style={{fontSize:10}}>{String(v)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {files.length > 0 && (
+            <div>
+              <div style={{ color: '#4fc3f7', fontWeight: 600, fontSize: 13, marginBottom: 6 }}>Bootflash Files</div>
+              <div style={{ overflowX: 'auto', maxHeight: 300, overflowY: 'auto' }}>
+                <table className="table-cisco">
+                  <thead><tr><th>Size</th><th>Date</th><th>Name</th></tr></thead>
+                  <tbody>
+                    {files.map((f, i) => (
+                      <tr key={i}>
+                        <td className="mono">{formatBytes(f.size)}</td>
+                        <td style={{fontSize:10, whiteSpace:'nowrap'}}>{f.date} {f.time} {f.year}</td>
+                        <td className="mono" style={{fontSize:10}}>{f.name}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    function MetricsChart({ switchId }) {
+      const chartRef = React.useRef(null);
+      const chartInstance = React.useRef(null);
+      const [series, setSeries] = React.useState(null);
+
+      React.useEffect(() => {
+        fetch('/api/metrics/' + switchId)
+          .then(r => r.json())
+          .then(d => setSeries(d));
+      }, [switchId]);
+
+      React.useEffect(() => {
+        if (!series || !chartRef.current) return;
+        if (chartInstance.current) chartInstance.current.destroy();
+
+        const fmt = (ts) => {
+          const d = new Date(ts + 'Z');
+          return d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+        };
+
+        chartInstance.current = new Chart(chartRef.current, {
+          type: 'line',
+          data: {
+            labels: (series.cpu || []).map(s => fmt(s.timestamp)),
+            datasets: [
+              {
+                label: 'CPU %',
+                data: (series.cpu || []).map(s => s.value),
+                borderColor: '#2ed573',
+                backgroundColor: 'rgba(46, 213, 115, 0.1)',
+                fill: true,
+                tension: 0.3,
+                pointRadius: 2,
+                pointHoverRadius: 5,
+                borderWidth: 2,
+              },
+              {
+                label: 'Memory %',
+                data: (series.memory || []).map(s => s.value),
+                borderColor: '#4fc3f7',
+                backgroundColor: 'rgba(79, 195, 247, 0.1)',
+                fill: true,
+                tension: 0.3,
+                pointRadius: 2,
+                pointHoverRadius: 5,
+                borderWidth: 2,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+              legend: {
+                labels: { color: '#c8d6e5', font: { size: 11 } },
+              },
+              tooltip: {
+                backgroundColor: '#0f1a2e',
+                titleColor: '#c8d6e5',
+                bodyColor: '#c8d6e5',
+                borderColor: '#1a3050',
+                borderWidth: 1,
+              },
+            },
+            scales: {
+              x: {
+                ticks: { color: '#556677', maxTicksLimit: 10, font: { size: 10 } },
+                grid: { color: 'rgba(26, 48, 80, 0.3)' },
+              },
+              y: {
+                min: 0,
+                max: 100,
+                ticks: { color: '#556677', font: { size: 10 }, callback: v => v + '%' },
+                grid: { color: 'rgba(26, 48, 80, 0.3)' },
+              },
+            },
+          },
+        });
+
+        return () => { if (chartInstance.current) chartInstance.current.destroy(); };
+      }, [series]);
+
+      if (!series) return <p style={{ color: '#667788', padding: 20, textAlign: 'center' }}>Loading metrics...</p>;
+
+      const allEmpty = (series.cpu || []).length === 0 && (series.memory || []).length === 0;
+      if (allEmpty) return <p style={{ color: '#667788', padding: 20, textAlign: 'center' }}>No historical data yet. Data is collected on each refresh.</p>;
+
+      return (
+        <div>
+          <div className="d-flex gap-3 mb-2">
+            <div className="stat-chip"><span style={{color:'#2ed573'}}>CPU</span>: {(series.cpu || []).length} points</div>
+            <div className="stat-chip"><span style={{color:'#4fc3f7'}}>Memory</span>: {(series.memory || []).length} points</div>
+          </div>
+          <div style={{ position: 'relative', height: 350 }}>
+            <canvas ref={chartRef}></canvas>
+          </div>
+        </div>
+      );
+    }
+
+    function DetailPage() {
+      const [data, setData] = useState(null);
+      const [loading, setLoading] = useState(true);
+      const [tab, setTab] = useState('interfaces');
+      const [sw, setSw] = useState(null);
+      const [platform, setPlatform] = useState('mds');
+
+      const getTabs = (plat) => ALL_TABS.filter(t => t.p.includes(plat));
+
+      const getDefaultTab = (plat) => {
+        const tabs = getTabs(plat);
+        return tabs.length > 0 ? tabs[0].id : 'interfaces';
+      };
+
+      const loadData = () => {
+        setLoading(true);
+        fetch('/api/switch/' + window._switchId)
+          .then(r => r.json())
+          .then(res => {
+            const plat = res.data?.platform || 'mds';
+            setPlatform(plat);
+            setData(res.data);
+            setSw(res.switch);
+            setLoading(false);
+            setTab(prev => {
+              const tabs = getTabs(plat);
+              return tabs.some(t => t.id === prev) ? prev : tabs[0]?.id || 'interfaces';
+            });
+            const badge = document.getElementById('platformBadge');
+            const meta = PLATFORM_META[plat] || PLATFORM_META.mds;
+            if (badge) {
+              badge.style.display = 'inline-block';
+              badge.style.background = meta.color + '22';
+              badge.style.color = meta.color;
+              badge.style.border = '1px solid ' + meta.color + '44';
+              badge.textContent = meta.label;
+            }
+          })
+          .catch(() => setLoading(false));
+      };
+
+      useEffect(() => {
+        loadData();
+        const saved = localStorage.getItem('detailRefreshInterval');
+        const initVal = saved !== null ? Number(saved) : 30;
+        const sel = document.getElementById('detailRefreshSelect');
+        if (sel) sel.value = String(initVal);
+        if (initVal > 0) {
+          const id = setInterval(loadData, initVal * 1000);
+          return () => clearInterval(id);
+        }
+      }, []);
+
+      window.setDetailRefresh = function(sec) {
+        localStorage.setItem('detailRefreshInterval', String(sec));
+      };
+
+      window.refreshSwitch = () => {
+        fetch('/api/refresh/' + window._switchId, { method: 'POST' })
+          .then(() => setTimeout(loadData, 1000));
+      };
+
+      if (loading && !data) {
+        return <div className="text-center py-5"><i className="bi bi-arrow-clockwise fs-1 loading-pulse" style={{color:'#4fc3f7'}}></i><p className="mt-2" style={{color:'#667788'}}>Loading switch data...</p></div>;
+      }
+
+      if (!data || !data.reachable) {
+        return <div className="alert" style={{background:'rgba(255,71,87,0.1)',border:'1px solid rgba(255,71,87,0.3)',color:'#ff4757',borderRadius:8}}>
+          <i className="bi bi-exclamation-triangle-fill me-2"></i>
+          {data ? data.error : 'Switch is unreachable'}
+        </div>;
+      }
+
+      const v = data.version_info || {};
+      const r = data.resource || {};
+      const tabs = getTabs(platform);
+      const intfCount = data.interfaces ? data.interfaces.length : 0;
+      const vsanCount = data.vsans ? data.vsans.length : (data.vlans ? data.vlans.length : 0);
+      const fcCount = data.fcns ? data.fcns.length : 0;
+
+      const tabContent = {
+        interfaces: <InterfaceTable data={data.interfaces} />,
+        vsans: <VSANTable data={data.vsans} />,
+        vlans: <VSANTable data={data.vlans} />,
+        modules: <ModuleTable data={data.modules} />,
+        inventory: <InventoryTable data={data.inventory} />,
+        flogi: <FLOGIEntTable data={data.flogi} />,
+        fcns: <FCNSEntTable data={data.fcns} />,
+        zoning: <ZoningTable data={data.zoneset} />,
+        environment: <EnvironmentTable data={data.environment} />,
+        portchannels: <PortChannelTable data={data.portchannels} />,
+        devaliases: <DeviceAliasTable data={data.device_aliases} />,
+        portsecurity: <PortSecurityTable data={data.port_security} />,
+        scsitargets: <SCSITargetTable data={data.scsi_targets} />,
+        storage: <StorageTable boot={data.boot} bootflash={data.bootflash} />,
+        accounting: <AccountingTable data={data.accounting} />,
+        syslogs: <SyslogTable data={data.syslogs} />,
+        metrics: <MetricsChart switchId={window._switchId} />,
+      };
+
+      return (
+        <>
+          <div className="row g-3 mb-3">
+            <div className="col-md-2 col-4"><InfoCard icon="bi-hdd-stack" label="Hostname" value={v.hostname} color="#4fc3f7" /></div>
+            <div className="col-md-2 col-4"><InfoCard icon="bi-box" label="Model" value={v.model} color="#2ed573" /></div>
+            <div className="col-md-2 col-4"><InfoCard icon="bi-tag" label="Version" value={v.version} color="#ffa502" /></div>
+            <div className="col-md-2 col-4"><InfoCard icon="bi-upc-scan" label="Serial" value={v.serial} color="#e8edf2" /></div>
+            <div className="col-md-2 col-4"><InfoCard icon="bi-clock" label="Uptime" value={v.uptime} color="#8899aa" /></div>
+            <div className="col-md-2 col-4"><InfoCard icon="bi-cpu" label="Load 1m" value={r.load_1m} color="#4fc3f7" /></div>
+          </div>
+
+          <div className="row g-3 mb-3">
+            <div className="col-md-6">
+              <div className="card-dark p-3 d-flex align-items-center gap-3">
+                <Gauge value={r.cpu_usage} label="CPU" color={r.cpu_usage > 80 ? '#ff4757' : '#2ed573'} max={100} />
+                <div>
+                  <div className="metric-label">CPU Usage</div>
+                  <div className="metric-value" style={{fontSize:16,marginBottom:4}}>{r.cpu_usage}%</div>
+                  <div style={{width:200,height:4,background:'#1a3050',borderRadius:2,overflow:'hidden'}}>
+                    <div style={{width:Math.min(r.cpu_usage,100)+'%',height:'100%',background:r.cpu_usage > 80 ? '#ff4757' : '#2ed573',borderRadius:2,transition:'width 1s ease'}}></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="col-md-6">
+              <div className="card-dark p-3 d-flex align-items-center gap-3">
+                <Gauge value={r.memory_usage_pct} label="MEM" color={r.memory_usage_pct > 80 ? '#ff4757' : '#4fc3f7'} max={100} />
+                <div>
+                  <div className="metric-label">Memory Usage</div>
+                  <div className="metric-value" style={{fontSize:16,marginBottom:4}}>{r.memory_usage_pct}%</div>
+                  <div style={{fontSize:11,color:'#667788'}}>{Math.round(r.memory_used_kb/1024)} MB / {Math.round(r.memory_total_kb/1024)} MB</div>
+                  <div style={{width:200,height:4,background:'#1a3050',borderRadius:2,overflow:'hidden',marginTop:4}}>
+                    <div style={{width:Math.min(r.memory_usage_pct,100)+'%',height:'100%',background:r.memory_usage_pct > 80 ? '#ff4757' : '#4fc3f7',borderRadius:2,transition:'width 1s ease'}}></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="card-dark">
+            <div className="tabs px-3 pt-3">
+              {tabs.map(t => (
+                <div key={t.id} className={`tab ${tab === t.id ? 'active' : ''}`} onClick={() => setTab(t.id)}>
+                  <i className={`bi ${t.icon} me-1`}></i> {t.label}
+                </div>
+              ))}
+            </div>
+            <div className="p-3">
+              {tabContent[tab]}
+            </div>
+          </div>
+        </>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<DetailPage />);
+  </script>
+{% endraw %}
+</body>
+</html>
