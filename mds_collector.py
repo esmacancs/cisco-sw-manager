@@ -195,11 +195,13 @@ TIER2_COMMANDS = {
 
 def _parse_version_nxos(output):
     data = {}
-    m = re.search(r"kickstart:\s+version\s+(\S+)", output)
+    m = re.search(r"NXOS:\s+version\s+(\S+)", output)
+    if not m:
+        m = re.search(r"kickstart:\s+version\s+(\S+)", output)
     if not m:
         m = re.search(r"system:\s+version\s+(\S+)", output)
     if not m:
-        m = re.search(r"version\s+(\S+)", output)
+        m = re.search(r"NX-OS.*?version\s+(\S+)", output)
     data["version"] = m.group(1) if m else "N/A"
     m = re.search(r"cisco\s+(\S+\s+\S+)", output)
     data["model"] = m.group(1) if m else "N/A"
