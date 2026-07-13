@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Alerts - Cisco Switch Manager</title>
+  <script src="/static/js/react.production.min.js"></script>
+  <script src="/static/js/react-dom.production.min.js"></script>
+  <script src="/static/js/babel.min.js"></script>
+  <link href="/static/css/bootstrap.min.css" rel="stylesheet">
+  <link href="/static/css/bootstrap-icons.min.css" rel="stylesheet">
+  <style>
+    :root {
+      --bg-body: #0a0e1a;
+      --text-primary: #c8d6e5;
+      --text-secondary: #667788;
+      --text-tertiary: #556677;
+      --card-bg: linear-gradient(145deg, #111d2e, #0f1a2e);
+      --card-bg-solid: #0f1a2e;
+      --border: #1a3050;
+      --navbar-bg: linear-gradient(135deg, #0f1a2e 0%, #1a2a4a 100%);
+      --navbar-border: #1e3a5f;
+      --accent: #4fc3f7;
+      --accent-rgb: 79, 195, 247;
+      --metric-value: #e8edf2;
+    }
+    [data-theme="light"] {
+      --bg-body: #eef2f7;
+      --text-primary: #1a2332;
+      --text-secondary: #6b7c93;
+      --text-tertiary: #8899aa;
+      --card-bg: linear-gradient(145deg, #ffffff, #f5f7fa);
+      --card-bg-solid: #ffffff;
+      --border: #d0d8e4;
+      --navbar-bg: linear-gradient(135deg, #ffffff 0%, #e8ecf1 100%);
+      --navbar-border: #d0d8e4;
+      --accent: #2196f3;
+      --accent-rgb: 33, 150, 243;
+      --metric-value: #1a2332;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: var(--bg-body); color: var(--text-primary); font-family: 'Segoe UI', system-ui, sans-serif; }
+    .navbar { background: var(--navbar-bg) !important; border-bottom: 1px solid var(--navbar-border); padding: 10px 24px; }
+    .navbar-brand { font-weight: 700; font-size: 16px; color: var(--accent) !important; }
+    .card-dark { background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; }
+    .card-dark-small { background: var(--card-bg-solid); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+    .metric-value { font-size: 14px; font-weight: 600; color: var(--metric-value); }
+    .metric-label { font-size: 10px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; }
+    .badge-sev-critical { background: rgba(255, 71, 87, 0.15); color: #ff4757; border: 1px solid rgba(255, 71, 87, 0.3); padding: 2px 10px; border-radius: 12px; font-size: 10px; font-weight: 600; }
+    .badge-sev-warning { background: rgba(255, 165, 2, 0.15); color: #ffa502; border: 1px solid rgba(255, 165, 2, 0.3); padding: 2px 10px; border-radius: 12px; font-size: 10px; font-weight: 600; }
+    .badge-sev-info { background: rgba(79, 195, 247, 0.15); color: #4fc3f7; border: 1px solid rgba(79, 195, 247, 0.3); padding: 2px 10px; border-radius: 12px; font-size: 10px; font-weight: 600; }
+    .badge-active { background: rgba(255, 71, 87, 0.15); color: #ff4757; border: 1px solid rgba(255, 71, 87, 0.3); padding: 2px 10px; border-radius: 12px; font-size: 10px; font-weight: 600; }
+    .badge-ack { background: rgba(46, 213, 115, 0.15); color: #2ed573; border: 1px solid rgba(46, 213, 115, 0.3); padding: 2px 10px; border-radius: 12px; font-size: 10px; font-weight: 600; }
+    .table-cisco { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .table-cisco thead th { background: rgba(var(--accent-rgb), 0.08); color: var(--accent); padding: 8px 10px; text-align: left; font-weight: 500; text-transform: uppercase; font-size: 10px; letter-spacing: 0.3px; border-bottom: 1px solid var(--border); }
+    .table-cisco tbody td { padding: 6px 10px; border-bottom: 1px solid rgba(var(--accent-rgb), 0.08); color: var(--text-primary); }
+    .table-cisco tbody tr:hover { background: rgba(var(--accent-rgb), 0.04); }
+    .btn-theme { background: rgba(var(--accent-rgb), 0.1); border: 1px solid rgba(var(--accent-rgb), 0.25); color: var(--accent); border-radius: 8px; padding: 4px 10px; font-size: 14px; cursor: pointer; }
+    .btn-theme:hover { background: rgba(var(--accent-rgb), 0.2); }
+    .btn-primary-cisco { background: linear-gradient(135deg, #1565c0, #0d47a1); border: 1px solid #1e88e5; color: #fff; }
+    .btn-primary-cisco:hover { background: linear-gradient(135deg, #1976d2, #1565c0); color: #fff; }
+    .btn-ack { background: rgba(46, 213, 115, 0.1); border: 1px solid rgba(46, 213, 115, 0.3); color: #2ed573; border-radius: 6px; padding: 4px 10px; font-size: 11px; cursor: pointer; }
+    .btn-ack:hover { background: rgba(46, 213, 115, 0.2); }
+    .btn-danger-sm { background: rgba(255, 71, 87, 0.1); border: 1px solid rgba(255, 71, 87, 0.3); color: #ff4757; border-radius: 6px; padding: 4px 10px; font-size: 11px; cursor: pointer; }
+    .btn-danger-sm:hover { background: rgba(255, 71, 87, 0.2); }
+    .filter-btn { display: inline-block; padding: 4px 14px; border-radius: 20px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; cursor: pointer; border: 1px solid var(--border); color: var(--text-secondary); background: transparent; transition: all 0.2s; }
+    .filter-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .filter-btn.active { background: rgba(var(--accent-rgb), 0.15); border-color: var(--accent); color: var(--accent); }
+    .mono { font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 11px; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+    .loading-pulse { animation: pulse 1.5s ease-in-out infinite; }
+  </style>
+  <script>
+    (function() {
+      const t = localStorage.getItem('theme') || 'dark';
+      document.documentElement.setAttribute('data-theme', t);
+    })();
+  </script>
+</head>
+<body>
+  <nav class="navbar">
+    <div class="container-fluid px-0">
+      <div class="d-flex align-items-center gap-3">
+        <a href="/" class="btn btn-sm btn-outline-secondary" style="border-color:#1a3050;color:#667788"><i class="bi bi-arrow-left"></i></a>
+        <span class="navbar-brand"><i class="bi bi-bell-fill me-2"></i>Alerts</span>
+      </div>
+      <div class="d-flex align-items-center gap-2">
+        <span style="color:#667788;font-size:12px;"><i class="bi bi-person-fill me-1"></i>{{ current_user or 'guest' }}</span>
+        <button class="btn btn-sm btn-theme" onclick="toggleTheme()"><i class="bi bi-moon-stars-fill" id="themeIcon"></i></button>
+        <a href="/rules" class="btn btn-sm btn-primary-cisco"><i class="bi bi-sliders"></i> Rules</a>
+        <a href="/logout" class="btn btn-sm" style="border-color:#1a3050;color:#667788"><i class="bi bi-box-arrow-right"></i></a>
+      </div>
+    </div>
+  </nav>
+
+  <div class="container-fluid px-4 py-4">
+    <div id="root"></div>
+  </div>
+
+<script>
+function toggleTheme() {
+  const html = document.documentElement;
+  const next = html.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+  html.setAttribute('data-theme', next);
+  localStorage.setItem('theme', next);
+  const icon = document.getElementById('themeIcon');
+  if (icon) icon.className = next === 'dark' ? 'bi bi-moon-stars-fill' : 'bi bi-sun-fill';
+}
+(function() {
+  const t = localStorage.getItem('theme') || 'dark';
+  const icon = document.getElementById('themeIcon');
+  if (icon) icon.className = t === 'dark' ? 'bi bi-moon-stars-fill' : 'bi bi-sun-fill';
+})();
+</script>
+{% raw %}
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    const SEV_CLASSES = { critical: 'badge-sev-critical', warning: 'badge-sev-warning', info: 'badge-sev-info' };
+
+    function AlertsPage() {
+      const [alerts, setAlerts] = useState([]);
+      const [loading, setLoading] = useState(true);
+      const [statusFilter, setStatusFilter] = useState('active');
+      const [sevFilter, setSevFilter] = useState('');
+      const [activeCount, setActiveCount] = useState(0);
+
+      const loadAlerts = () => {
+        setLoading(true);
+        let url = '/api/alerts?limit=200';
+        if (statusFilter) url += '&status=' + statusFilter;
+        if (sevFilter) url += '&severity=' + sevFilter;
+        fetch(url)
+          .then(r => r.json())
+          .then(d => { setAlerts(d.alerts || []); setActiveCount(d.count || 0); setLoading(false); })
+          .catch(() => setLoading(false));
+      };
+
+      useEffect(() => { loadAlerts(); }, [statusFilter, sevFilter]);
+
+      const acknowledgeOne = (id) => {
+        fetch('/api/alerts/' + id + '/acknowledge', { method: 'POST' })
+          .then(() => loadAlerts());
+      };
+
+      const acknowledgeAll = () => {
+        fetch('/api/alerts/acknowledge_all', { method: 'POST' })
+          .then(() => loadAlerts());
+      };
+
+      const deleteAlert = (id) => {
+        fetch('/api/alerts/' + id, { method: 'DELETE' })
+          .then(() => loadAlerts());
+      };
+
+      return (
+        <>
+          <div className="d-flex justify-content-between align-items-center mb-3">
+            <div>
+              <h5 style={{ fontWeight: 300, color: '#8899aa' }}>
+                <i className="bi bi-bell-fill me-2"></i>Alert History
+                {activeCount > 0 && <span style={{marginLeft:8,padding:'2px 10px',borderRadius:12,background:'rgba(255,71,87,0.15)',color:'#ff4757',fontSize:12,fontWeight:600}}>{activeCount} active</span>}
+              </h5>
+            </div>
+            <div className="d-flex gap-2">
+              {activeCount > 0 && (
+                <button className="btn-ack" onClick={acknowledgeAll}>
+                  <i className="bi bi-check-all me-1"></i>Ack All
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="d-flex flex-wrap gap-2 mb-3">
+            {['active', 'acknowledged', ''].map(s => (
+              <button key={s || 'all'} className={'filter-btn' + (statusFilter === s ? ' active' : '')} onClick={() => setStatusFilter(s)}>
+                {s || 'All'}
+              </button>
+            ))}
+            <span style={{width:1,height:20,background:'var(--border)',margin:'0 4px'}}></span>
+            {['critical', 'warning', 'info', ''].map(s => (
+              <button key={s || 'all-sev'} className={'filter-btn' + (sevFilter === s ? ' active' : '')} onClick={() => setSevFilter(s)}>
+                {s || 'All Sev'}
+              </button>
+            ))}
+          </div>
+
+          {loading ? (
+            <div className="text-center py-5">
+              <i className="bi bi-arrow-clockwise fs-1 loading-pulse" style={{color:'#4fc3f7'}}></i>
+            </div>
+          ) : alerts.length === 0 ? (
+            <div className="card-dark p-5 text-center">
+              <i className="bi bi-check-circle" style={{fontSize:48,color:'#2ed573'}}></i>
+              <h5 className="mt-3" style={{color:'var(--text-secondary)'}}>No alerts</h5>
+              <p style={{color:'var(--text-tertiary)',fontSize:13}}>Alerts will appear here when thresholds are breached.</p>
+            </div>
+          ) : (
+            <div className="card-dark" style={{overflow:'hidden'}}>
+              <div style={{overflowX:'auto'}}>
+                <table className="table-cisco">
+                  <thead>
+                    <tr>
+                      <th>Severity</th>
+                      <th>Switch</th>
+                      <th>Rule</th>
+                      <th>Message</th>
+                      <th>Value</th>
+                      <th>Time</th>
+                      <th>Status</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {alerts.map(a => (
+                      <tr key={a.id}>
+                        <td><span className={SEV_CLASSES[a.severity] || 'badge-sev-info'}>{a.severity}</span></td>
+                        <td>
+                          <a href={'/switch/' + a.switch_id} style={{color:'#4fc3f7',textDecoration:'none'}}>
+                            {a.switch_host || 'Unknown'}
+                          </a>
+                        </td>
+                        <td style={{fontSize:11}}>{a.rule_name || '-'}</td>
+                        <td style={{fontSize:11}}>{a.message}</td>
+                        <td className="mono">{a.current_value !== null ? Number(a.current_value).toFixed(1) : '-'}</td>
+                        <td className="mono" style={{fontSize:10,whiteSpace:'nowrap'}}>{a.created_at}</td>
+                        <td>
+                          <span className={a.status === 'active' ? 'badge-active' : 'badge-ack'}>{a.status}</span>
+                        </td>
+                        <td>
+                          <div className="d-flex gap-1">
+                            {a.status === 'active' && (
+                              <button className="btn-ack" onClick={() => acknowledgeOne(a.id)} title="Acknowledge">
+                                <i className="bi bi-check-lg"></i>
+                              </button>
+                            )}
+                            <button className="btn-danger-sm" onClick={() => deleteAlert(a.id)} title="Delete">
+                              <i className="bi bi-trash"></i>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<AlertsPage />);
+  </script>
+{% endraw %}
+</body>
+</html>

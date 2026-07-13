@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Alert Rules - Cisco Switch Manager</title>
+  <script src="/static/js/react.production.min.js"></script>
+  <script src="/static/js/react-dom.production.min.js"></script>
+  <script src="/static/js/babel.min.js"></script>
+  <link href="/static/css/bootstrap.min.css" rel="stylesheet">
+  <link href="/static/css/bootstrap-icons.min.css" rel="stylesheet">
+  <style>
+    :root {
+      --bg-body: #0a0e1a;
+      --text-primary: #c8d6e5;
+      --text-secondary: #667788;
+      --text-tertiary: #556677;
+      --card-bg: linear-gradient(145deg, #111d2e, #0f1a2e);
+      --card-bg-solid: #0f1a2e;
+      --border: #1a3050;
+      --navbar-bg: linear-gradient(135deg, #0f1a2e 0%, #1a2a4a 100%);
+      --navbar-border: #1e3a5f;
+      --accent: #4fc3f7;
+      --accent-rgb: 79, 195, 247;
+      --metric-value: #e8edf2;
+      --placeholder: #445566;
+    }
+    [data-theme="light"] {
+      --bg-body: #eef2f7;
+      --text-primary: #1a2332;
+      --text-secondary: #6b7c93;
+      --text-tertiary: #8899aa;
+      --card-bg: linear-gradient(145deg, #ffffff, #f5f7fa);
+      --card-bg-solid: #ffffff;
+      --border: #d0d8e4;
+      --navbar-bg: linear-gradient(135deg, #ffffff 0%, #e8ecf1 100%);
+      --navbar-border: #d0d8e4;
+      --accent: #2196f3;
+      --accent-rgb: 33, 150, 243;
+      --metric-value: #1a2332;
+      --placeholder: #aab5c5;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: var(--bg-body); color: var(--text-primary); font-family: 'Segoe UI', system-ui, sans-serif; }
+    .navbar { background: var(--navbar-bg) !important; border-bottom: 1px solid var(--navbar-border); padding: 10px 24px; }
+    .navbar-brand { font-weight: 700; font-size: 16px; color: var(--accent) !important; }
+    .card-dark { background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; }
+    .card-dark-small { background: var(--card-bg-solid); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+    .metric-value { font-size: 14px; font-weight: 600; color: var(--metric-value); }
+    .metric-label { font-size: 10px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; }
+    .table-cisco { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .table-cisco thead th { background: rgba(var(--accent-rgb), 0.08); color: var(--accent); padding: 8px 10px; text-align: left; font-weight: 500; text-transform: uppercase; font-size: 10px; letter-spacing: 0.3px; border-bottom: 1px solid var(--border); }
+    .table-cisco tbody td { padding: 6px 10px; border-bottom: 1px solid rgba(var(--accent-rgb), 0.08); color: var(--text-primary); }
+    .table-cisco tbody tr:hover { background: rgba(var(--accent-rgb), 0.04); }
+    .btn-theme { background: rgba(var(--accent-rgb), 0.1); border: 1px solid rgba(var(--accent-rgb), 0.25); color: var(--accent); border-radius: 8px; padding: 4px 10px; font-size: 14px; cursor: pointer; }
+    .btn-theme:hover { background: rgba(var(--accent-rgb), 0.2); }
+    .btn-primary-cisco { background: linear-gradient(135deg, #1565c0, #0d47a1); border: 1px solid #1e88e5; color: #fff; }
+    .btn-primary-cisco:hover { background: linear-gradient(135deg, #1976d2, #1565c0); color: #fff; }
+    .btn-danger-sm { background: rgba(255, 71, 87, 0.1); border: 1px solid rgba(255, 71, 87, 0.3); color: #ff4757; border-radius: 6px; padding: 4px 10px; font-size: 11px; cursor: pointer; }
+    .btn-danger-sm:hover { background: rgba(255, 71, 87, 0.2); }
+    .btn-edit { background: rgba(var(--accent-rgb), 0.1); border: 1px solid rgba(var(--accent-rgb), 0.3); color: var(--accent); border-radius: 6px; padding: 4px 10px; font-size: 11px; cursor: pointer; }
+    .btn-edit:hover { background: rgba(var(--accent-rgb), 0.2); }
+    .form-cisco { background: var(--card-bg-solid); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+    .form-cisco input, .form-cisco select { background: var(--bg-body); border: 1px solid var(--border); color: var(--text-primary); border-radius: 6px; padding: 6px 10px; font-size: 13px; outline: none; width: 100%; }
+    .form-cisco input:focus, .form-cisco select:focus { border-color: var(--accent); }
+    .badge-sev-critical { background: rgba(255, 71, 87, 0.15); color: #ff4757; border: 1px solid rgba(255, 71, 87, 0.3); padding: 2px 10px; border-radius: 12px; font-size: 10px; font-weight: 600; }
+    .badge-sev-warning { background: rgba(255, 165, 2, 0.15); color: #ffa502; border: 1px solid rgba(255, 165, 2, 0.3); padding: 2px 10px; border-radius: 12px; font-size: 10px; font-weight: 600; }
+    .badge-sev-info { background: rgba(79, 195, 247, 0.15); color: #4fc3f7; border: 1px solid rgba(79, 195, 247, 0.3); padding: 2px 10px; border-radius: 12px; font-size: 10px; font-weight: 600; }
+    .toggle { position: relative; display: inline-block; width: 36px; height: 20px; cursor: pointer; }
+    .toggle input { opacity: 0; width: 0; height: 0; }
+    .toggle-slider { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: var(--border); border-radius: 20px; transition: 0.3s; }
+    .toggle-slider:before { content: ''; position: absolute; width: 16px; height: 16px; left: 2px; bottom: 2px; background: var(--text-secondary); border-radius: 50%; transition: 0.3s; }
+    .toggle input:checked + .toggle-slider { background: rgba(46, 213, 115, 0.4); }
+    .toggle input:checked + .toggle-slider:before { transform: translateX(16px); background: #2ed573; }
+    .mono { font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 11px; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+    .loading-pulse { animation: pulse 1.5s ease-in-out infinite; }
+  </style>
+  <script>
+    (function() {
+      const t = localStorage.getItem('theme') || 'dark';
+      document.documentElement.setAttribute('data-theme', t);
+    })();
+  </script>
+</head>
+<body>
+  <nav class="navbar">
+    <div class="container-fluid px-0">
+      <div class="d-flex align-items-center gap-3">
+        <a href="/alerts" class="btn btn-sm btn-outline-secondary" style="border-color:#1a3050;color:#667788"><i class="bi bi-arrow-left"></i></a>
+        <span class="navbar-brand"><i class="bi bi-sliders me-2"></i>Alert Rules</span>
+      </div>
+      <div class="d-flex align-items-center gap-2">
+        <span style="color:#667788;font-size:12px;"><i class="bi bi-person-fill me-1"></i>{{ current_user or 'guest' }}</span>
+        <button class="btn btn-sm btn-theme" onclick="toggleTheme()"><i class="bi bi-moon-stars-fill" id="themeIcon"></i></button>
+        <a href="/alerts" class="btn btn-sm" style="border-color:#1a3050;color:#667788"><i class="bi bi-bell"></i></a>
+        <a href="/logout" class="btn btn-sm" style="border-color:#1a3050;color:#667788"><i class="bi bi-box-arrow-right"></i></a>
+      </div>
+    </div>
+  </nav>
+
+  <div class="container-fluid px-4 py-4">
+    <div id="root"></div>
+  </div>
+
+<script>
+function toggleTheme() {
+  const html = document.documentElement;
+  const next = html.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+  html.setAttribute('data-theme', next);
+  localStorage.setItem('theme', next);
+  const icon = document.getElementById('themeIcon');
+  if (icon) icon.className = next === 'dark' ? 'bi bi-moon-stars-fill' : 'bi bi-sun-fill';
+}
+(function() {
+  const t = localStorage.getItem('theme') || 'dark';
+  const icon = document.getElementById('themeIcon');
+  if (icon) icon.className = t === 'dark' ? 'bi bi-moon-stars-fill' : 'bi bi-sun-fill';
+})();
+</script>
+{% raw %}
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    const METRICS = [
+      { value: 'cpu_usage', label: 'CPU Usage (%)' },
+      { value: 'memory_usage_pct', label: 'Memory Usage (%)' },
+      { value: 'memory_used_kb', label: 'Memory Used (KB)' },
+      { value: 'load_1m', label: 'Load Average 1m' },
+      { value: 'interface_count', label: 'Interface Count' },
+      { value: 'down_interfaces', label: 'Down Interfaces' },
+      { value: 'port_count', label: 'Port Count' },
+    ];
+    const OPERATORS = ['>', '>=', '<', '<=', '=='];
+    const SEVERITIES = ['critical', 'warning', 'info'];
+    const SEV_CLASSES = { critical: 'badge-sev-critical', warning: 'badge-sev-warning', info: 'badge-sev-info' };
+
+    function RuleForm({ onSave, onCancel, initial }) {
+      const [name, setName] = useState(initial?.name || '');
+      const [metric, setMetric] = useState(initial?.metric || 'cpu_usage');
+      const [operator, setOperator] = useState(initial?.operator || '>');
+      const [threshold, setThreshold] = useState(initial?.threshold ?? 80);
+      const [severity, setSeverity] = useState(initial?.severity || 'warning');
+      const [error, setError] = useState('');
+
+      const handleSubmit = (e) => {
+        e.preventDefault();
+        if (!name.trim()) { setError('Name required'); return; }
+        const payload = { name: name.trim(), metric, operator, threshold: Number(threshold), severity };
+        const url = initial ? '/api/rules/' + initial.id : '/api/rules';
+        const method = initial ? 'PUT' : 'POST';
+        fetch(url, { method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) })
+          .then(r => r.json())
+          .then(d => { if (d.error) setError(d.error); else onSave(); })
+          .catch(() => setError('Request failed'));
+      };
+
+      return (
+        <div className="form-cisco mb-4">
+          <h6 style={{color:'var(--accent)',marginBottom:12,fontWeight:600}}>
+            <i className="bi bi-plus-circle me-1"></i>{initial ? 'Edit Rule' : 'New Rule'}
+          </h6>
+          {error && <div style={{background:'rgba(255,71,87,0.1)',border:'1px solid rgba(255,71,87,0.3)',color:'#ff4757',padding:'8px 12px',borderRadius:6,fontSize:12,marginBottom:10}}>{error}</div>}
+          <form onSubmit={handleSubmit}>
+            <div className="row g-3">
+              <div className="col-md-3">
+                <label className="metric-label mb-1">Rule Name</label>
+                <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="High CPU Alert" />
+              </div>
+              <div className="col-md-2">
+                <label className="metric-label mb-1">Metric</label>
+                <select value={metric} onChange={e => setMetric(e.target.value)}>
+                  {METRICS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                </select>
+              </div>
+              <div className="col-md-1">
+                <label className="metric-label mb-1">Operator</label>
+                <select value={operator} onChange={e => setOperator(e.target.value)}>
+                  {OPERATORS.map(o => <option key={o} value={o}>{o}</option>)}
+                </select>
+              </div>
+              <div className="col-md-2">
+                <label className="metric-label mb-1">Threshold</label>
+                <input type="number" step="0.1" value={threshold} onChange={e => setThreshold(e.target.value)} />
+              </div>
+              <div className="col-md-2">
+                <label className="metric-label mb-1">Severity</label>
+                <select value={severity} onChange={e => setSeverity(e.target.value)}>
+                  {SEVERITIES.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              <div className="col-md-2 d-flex align-items-end gap-2">
+                <button type="submit" className="btn-primary-cisco btn btn-sm" style={{borderRadius:6,padding:'6px 16px'}}>
+                  <i className="bi bi-check-lg me-1"></i>{initial ? 'Update' : 'Create'}
+                </button>
+                {onCancel && (
+                  <button type="button" className="btn btn-sm" style={{border:'1px solid var(--border)',color:'var(--text-secondary)',borderRadius:6,padding:'6px 12px'}} onClick={onCancel}>
+                    Cancel
+                  </button>
+                )}
+              </div>
+            </div>
+          </form>
+        </div>
+      );
+    }
+
+    function RulesPage() {
+      const [rules, setRules] = useState([]);
+      const [loading, setLoading] = useState(true);
+      const [showForm, setShowForm] = useState(false);
+      const [editingRule, setEditingRule] = useState(null);
+      const [isAdmin, setIsAdmin] = useState(false);
+
+      useEffect(() => {
+        fetch('/api/me').then(r => r.json()).then(d => setIsAdmin(d.role === 'admin'));
+      }, []);
+
+      const loadRules = () => {
+        setLoading(true);
+        fetch('/api/rules')
+          .then(r => r.json())
+          .then(d => { setRules(d.rules || []); setLoading(false); })
+          .catch(() => setLoading(false));
+      };
+
+      useEffect(() => { loadRules(); }, []);
+
+      const toggleEnabled = (rule) => {
+        fetch('/api/rules/' + rule.id, {
+          method: 'PUT',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ enabled: rule.enabled ? 0 : 1 })
+        }).then(() => loadRules());
+      };
+
+      const deleteRule = (id) => {
+        if (!confirm('Delete this alert rule?')) return;
+        fetch('/api/rules/' + id, { method: 'DELETE' }).then(() => loadRules());
+      };
+
+      const handleSave = () => {
+        setShowForm(false);
+        setEditingRule(null);
+        loadRules();
+      };
+
+      const startEdit = (rule) => {
+        setEditingRule(rule);
+        setShowForm(true);
+      };
+
+      return (
+        <>
+          <div className="d-flex justify-content-between align-items-center mb-3">
+            <h5 style={{ fontWeight: 300, color: '#8899aa' }}>
+              <i className="bi bi-sliders me-2"></i>Alert Rules ({rules.length})
+            </h5>
+            {isAdmin && !showForm && (
+              <button className="btn-primary-cisco btn btn-sm" style={{borderRadius:6,padding:'6px 14px'}} onClick={() => { setEditingRule(null); setShowForm(true); }}>
+                <i className="bi bi-plus-lg me-1"></i>New Rule
+              </button>
+            )}
+          </div>
+
+          {showForm && (
+            <RuleForm onSave={handleSave} onCancel={() => { setShowForm(false); setEditingRule(null); }} initial={editingRule} />
+          )}
+
+          {loading ? (
+            <div className="text-center py-5">
+              <i className="bi bi-arrow-clockwise fs-1 loading-pulse" style={{color:'#4fc3f7'}}></i>
+            </div>
+          ) : rules.length === 0 ? (
+            <div className="card-dark p-5 text-center">
+              <i className="bi bi-shield-check" style={{fontSize:48,color:'var(--border)'}}></i>
+              <h5 className="mt-3" style={{color:'var(--text-secondary)'}}>No alert rules</h5>
+              <p style={{color:'var(--text-tertiary)',fontSize:13}}>Create rules to monitor switch metrics and trigger alerts.</p>
+            </div>
+          ) : (
+            <div className="card-dark" style={{overflow:'hidden'}}>
+              <div style={{overflowX:'auto'}}>
+                <table className="table-cisco">
+                  <thead>
+                    <tr>
+                      <th>Enabled</th>
+                      <th>Name</th>
+                      <th>Metric</th>
+                      <th>Condition</th>
+                      <th>Severity</th>
+                      <th>Created</th>
+                      {isAdmin && <th>Actions</th>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rules.map(r => (
+                      <tr key={r.id}>
+                        <td>
+                          <label className="toggle">
+                            <input type="checkbox" checked={!!r.enabled} onChange={() => toggleEnabled(r)} />
+                            <span className="toggle-slider"></span>
+                          </label>
+                        </td>
+                        <td style={{fontWeight:600}}>{r.name}</td>
+                        <td className="mono">{r.metric}</td>
+                        <td className="mono">{r.operator} {r.threshold}</td>
+                        <td><span className={SEV_CLASSES[r.severity] || 'badge-sev-info'}>{r.severity}</span></td>
+                        <td className="mono" style={{fontSize:10}}>{r.created_at}</td>
+                        {isAdmin && (
+                          <td>
+                            <div className="d-flex gap-1">
+                              <button className="btn-edit" onClick={() => startEdit(r)} title="Edit">
+                                <i className="bi bi-pencil"></i>
+                              </button>
+                              <button className="btn-danger-sm" onClick={() => deleteRule(r.id)} title="Delete">
+                                <i className="bi bi-trash"></i>
+                              </button>
+                            </div>
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          <div className="card-dark-small mt-4" style={{fontSize:12,color:'var(--text-tertiary)'}}>
+            <i className="bi bi-info-circle me-1"></i>
+            Rules are evaluated on every data collection cycle (every 30s) and on manual refresh. When a threshold is breached, an alert is created and shown in the alerts page.
+          </div>
+        </>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<RulesPage />);
+  </script>
+{% endraw %}
+</body>
+</html>

@@ -53,6 +53,30 @@ def init_db():
                 details TEXT,
                 FOREIGN KEY (switch_id) REFERENCES switches(id) ON DELETE SET NULL
             );
+            CREATE TABLE IF NOT EXISTS alert_rules (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                metric TEXT NOT NULL,
+                operator TEXT NOT NULL DEFAULT '>',
+                threshold REAL NOT NULL,
+                severity TEXT NOT NULL DEFAULT 'warning',
+                enabled INTEGER DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS alerts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                rule_id INTEGER NOT NULL,
+                switch_id INTEGER,
+                switch_host TEXT,
+                message TEXT NOT NULL,
+                current_value REAL,
+                severity TEXT NOT NULL DEFAULT 'warning',
+                status TEXT NOT NULL DEFAULT 'active',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                acknowledged_at TIMESTAMP,
+                FOREIGN KEY (rule_id) REFERENCES alert_rules(id) ON DELETE CASCADE,
+                FOREIGN KEY (switch_id) REFERENCES switches(id) ON DELETE SET NULL
+            );
         """)
     _migrate_schema()
     ensure_admin_exists()
@@ -66,6 +90,43 @@ def _migrate_schema():
         ucols = [r["name"] for r in conn.execute("PRAGMA table_info(users)").fetchall()]
         if "hidden_tabs" not in ucols:
             conn.execute("ALTER TABLE users ADD COLUMN hidden_tabs TEXT DEFAULT ''")
+
+        # Migrate alert_rules table: old schema had metric_type, switch_id; new has metric
+        ar_cols = [r["name"] for r in conn.execute("PRAGMA table_info(alert_rules)").fetchall()]
+        if "metric_type" in ar_cols and "metric" not in ar_cols:
+            # Drop old table and recreate with new schema
+            conn.execute("DROP TABLE IF EXISTS alert_rules")
+            conn.execute("DROP TABLE IF EXISTS alerts")
+            conn.executescript("""
+                CREATE TABLE IF NOT EXISTS alert_rules (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    metric TEXT NOT NULL,
+                    operator TEXT NOT NULL DEFAULT '>',
+                    threshold REAL NOT NULL,
+                    severity TEXT NOT NULL DEFAULT 'warning',
+                    enabled INTEGER DEFAULT 1,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE TABLE IF NOT EXISTS alerts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    rule_id INTEGER NOT NULL,
+                    switch_id INTEGER,
+                    switch_host TEXT,
+                    message TEXT NOT NULL,
+                    current_value REAL,
+                    severity TEXT NOT NULL DEFAULT 'warning',
+                    status TEXT NOT NULL DEFAULT 'active',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    acknowledged_at TIMESTAMP,
+                    FOREIGN KEY (rule_id) REFERENCES alert_rules(id) ON DELETE CASCADE,
+                    FOREIGN KEY (switch_id) REFERENCES switches(id) ON DELETE SET NULL
+                );
+            """)
+            print("[migrate] Recreated alert_rules and alerts tables with new schema")
+        elif not ar_cols:
+            # Tables don't exist yet, will be created by executescript above
+            pass
 
 
 # ---------- Switches ----------
@@ -134,6 +195,15 @@ def get_snapshots(switch_id, limit=200, offset=0):
         rows = conn.execute(
             "SELECT * FROM snapshots WHERE switch_id = ? ORDER BY collected_at ASC LIMIT ? OFFSET ?",
             (switch_id, limit, offset),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_recent_snapshots(switch_id, limit=10):
+    with _get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM snapshots WHERE switch_id = ? ORDER BY collected_at DESC LIMIT ?",
+            (switch_id, limit),
         ).fetchall()
         return [dict(r) for r in rows]
 
@@ -239,3 +309,109 @@ def get_audit_stats():
             "SELECT event_type, COUNT(*) as c FROM audit_log GROUP BY event_type ORDER BY c DESC"
         ).fetchall()
         return {"total": total, "by_type": [dict(r) for r in by_type]}
+
+
+# ---------- Alert Rules ----------
+
+def get_all_alert_rules():
+    with _get_conn() as conn:
+        rows = conn.execute("SELECT * FROM alert_rules ORDER BY created_at DESC").fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_alert_rule(rule_id):
+    with _get_conn() as conn:
+        row = conn.execute("SELECT * FROM alert_rules WHERE id = ?", (rule_id,)).fetchone()
+        return dict(row) if row else None
+
+
+def add_alert_rule(name, metric, operator, threshold, severity="warning"):
+    with _get_conn() as conn:
+        conn.execute(
+            "INSERT INTO alert_rules (name, metric, operator, threshold, severity) VALUES (?, ?, ?, ?, ?)",
+            (name, metric, operator, threshold, severity),
+        )
+
+
+def update_alert_rule(rule_id, name=None, metric=None, operator=None, threshold=None, severity=None, enabled=None):
+    with _get_conn() as conn:
+        rule = conn.execute("SELECT * FROM alert_rules WHERE id = ?", (rule_id,)).fetchone()
+        if not rule:
+            return False
+        name = name if name is not None else rule["name"]
+        metric = metric if metric is not None else rule["metric"]
+        operator = operator if operator is not None else rule["operator"]
+        threshold = threshold if threshold is not None else rule["threshold"]
+        severity = severity if severity is not None else rule["severity"]
+        enabled = enabled if enabled is not None else rule["enabled"]
+        conn.execute(
+            "UPDATE alert_rules SET name=?, metric=?, operator=?, threshold=?, severity=?, enabled=? WHERE id=?",
+            (name, metric, operator, threshold, severity, enabled, rule_id),
+        )
+        return True
+
+
+def delete_alert_rule(rule_id):
+    with _get_conn() as conn:
+        conn.execute("DELETE FROM alert_rules WHERE id = ?", (rule_id,))
+
+
+# ---------- Alerts ----------
+
+def add_alert(rule_id, switch_id, switch_host, message, current_value, severity):
+    with _get_conn() as conn:
+        conn.execute(
+            "INSERT INTO alerts (rule_id, switch_id, switch_host, message, current_value, severity) VALUES (?, ?, ?, ?, ?, ?)",
+            (rule_id, switch_id, switch_host, message, current_value, severity),
+        )
+
+
+def get_alerts(limit=200, offset=0, status=None, severity=None, switch_id=None):
+    with _get_conn() as conn:
+        parts = ["SELECT a.*, r.name as rule_name, r.metric FROM alerts a LEFT JOIN alert_rules r ON a.rule_id = r.id"]
+        params = []
+        where = []
+        if status:
+            where.append("a.status = ?")
+            params.append(status)
+        if severity:
+            where.append("a.severity = ?")
+            params.append(severity)
+        if switch_id is not None:
+            where.append("a.switch_id = ?")
+            params.append(switch_id)
+        if where:
+            parts.append("WHERE " + " AND ".join(where))
+        parts.append("ORDER BY a.created_at DESC LIMIT ? OFFSET ?")
+        params.extend([limit, offset])
+        rows = conn.execute(" ".join(parts), params).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_active_alert_count():
+    with _get_conn() as conn:
+        row = conn.execute("SELECT COUNT(*) as c FROM alerts WHERE status = 'active'").fetchone()
+        return row["c"]
+
+
+def acknowledge_alert(alert_id):
+    with _get_conn() as conn:
+        conn.execute(
+            "UPDATE alerts SET status = 'acknowledged', acknowledged_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (alert_id,),
+        )
+
+
+def acknowledge_all_alerts():
+    with _get_conn() as conn:
+        conn.execute(
+            "UPDATE alerts SET status = 'acknowledged', acknowledged_at = CURRENT_TIMESTAMP WHERE status = 'active'"
+        )
+
+
+def delete_old_alerts(days=30):
+    with _get_conn() as conn:
+        conn.execute(
+            "DELETE FROM alerts WHERE created_at < datetime('now', ?)",
+            (f"-{days} days",),
+        )

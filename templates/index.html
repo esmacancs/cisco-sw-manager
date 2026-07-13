@@ -102,6 +102,10 @@
         {% if current_role == 'admin' %}
         <a href="/users" class="btn btn-sm btn-outline-secondary" style="border-color:#1a3050;color:#667788"><i class="bi bi-people-fill"></i></a>
         {% endif %}
+        <a href="/alerts" class="btn btn-sm btn-outline-secondary" style="border-color:#1a3050;color:#667788;position:relative">
+          <i class="bi bi-bell-fill"></i>
+          {% if active_alert_count > 0 %}<span style="position:absolute;top:-4px;right:-4px;background:#ff4757;color:#fff;font-size:9px;font-weight:700;padding:1px 5px;border-radius:10px;line-height:1.3;">{{ active_alert_count }}</span>{% endif %}
+        </a>
         <a href="/logs" class="btn btn-sm btn-outline-secondary" style="border-color:#1a3050;color:#667788"><i class="bi bi-journal-text"></i> Logs</a>
         <button class="btn btn-sm btn-theme" onclick="toggleTheme()"><i class="bi bi-moon-stars-fill" id="themeIcon"></i></button>
         <button class="btn btn-sm btn-outline-info" onclick="window.refreshAll()"><i class="bi bi-arrow-clockwise"></i> Refresh All</button>
@@ -246,10 +250,96 @@ function toggleTheme() {
       );
     }
 
+    const SEVERITY_META = {
+      critical: { label: 'Critical', color: '#ff4757', icon: 'bi-exclamation-triangle-fill', bg: 'rgba(255,71,87,0.12)' },
+      warning:  { label: 'Warning',  color: '#ffa502', icon: 'bi-exclamation-circle-fill',  bg: 'rgba(255,165,2,0.12)' },
+      info:     { label: 'Info',     color: '#4fc3f7', icon: 'bi-info-circle-fill',         bg: 'rgba(79,195,247,0.12)' },
+    };
+
+    function AlertSummary({ refreshKey }) {
+      const [summary, setSummary] = useState({ total: 0, critical: 0, warning: 0, info: 0 });
+
+      useEffect(() => {
+        fetch('/api/alerts/summary')
+          .then(r => r.json())
+          .then(d => setSummary(d))
+          .catch(() => {});
+      }, [refreshKey]);
+
+      if (summary.total === 0) return null;
+
+      return (
+        <div style={{
+          background: 'linear-gradient(135deg, #111d2e, #0f1a2e)',
+          border: '1px solid #1a3050',
+          borderRadius: 12,
+          padding: '16px 20px',
+          marginBottom: 20,
+        }}>
+          <div className="d-flex justify-content-between align-items-center mb-2">
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#c8d6e5' }}>
+              <i className="bi bi-bell-fill me-2" style={{ color: '#ff4757' }}></i>
+              Active Alerts
+            </div>
+            <a href="/alerts" style={{ fontSize: 11, color: '#4fc3f7', textDecoration: 'none' }}>
+              View All <i className="bi bi-arrow-right"></i>
+            </a>
+          </div>
+          <div className="d-flex gap-3 flex-wrap">
+            {Object.entries(SEVERITY_META).map(([key, meta]) => {
+              const count = summary[key] || 0;
+              if (count === 0) return null;
+              return (
+                <div key={key} style={{
+                  background: meta.bg,
+                  border: `1px solid ${meta.color}44`,
+                  borderRadius: 10,
+                  padding: '10px 18px',
+                  minWidth: 120,
+                  flex: '1 1 auto',
+                }}>
+                  <div className="d-flex align-items-center gap-2 mb-1">
+                    <i className={`bi ${meta.icon}`} style={{ color: meta.color, fontSize: 14 }}></i>
+                    <span style={{ fontSize: 11, color: meta.color, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                      {meta.label}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 28, fontWeight: 700, color: meta.color, lineHeight: 1 }}>
+                    {count}
+                  </div>
+                </div>
+              );
+            })}
+            {summary.total > 0 && (
+              <div style={{
+                background: 'rgba(var(--accent-rgb), 0.08)',
+                border: '1px solid rgba(var(--accent-rgb), 0.2)',
+                borderRadius: 10,
+                padding: '10px 18px',
+                minWidth: 120,
+                flex: '1 1 auto',
+              }}>
+                <div className="d-flex align-items-center gap-2 mb-1">
+                  <i className="bi bi-list-check" style={{ color: 'var(--accent)', fontSize: 14 }}></i>
+                  <span style={{ fontSize: 11, color: 'var(--accent)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                    Total
+                  </span>
+                </div>
+                <div style={{ fontSize: 28, fontWeight: 700, color: 'var(--accent)', lineHeight: 1 }}>
+                  {summary.total}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
     function Dashboard() {
       const [switches, setSwitches] = useState([]);
       const [loading, setLoading] = useState(true);
       const [siteFilter, setSiteFilter] = useState('');
+      const [alertRefreshKey, setAlertRefreshKey] = useState(0);
       const [refreshSec, setRefreshSec] = useState(() => {
         const saved = localStorage.getItem('refreshInterval');
         return saved !== null ? Number(saved) : 30;
@@ -258,7 +348,7 @@ function toggleTheme() {
       const loadData = () => {
         fetch('/api/switches')
           .then(r => r.json())
-          .then(data => { setSwitches(data); setLoading(false); })
+          .then(data => { setSwitches(data); setLoading(false); setAlertRefreshKey(k => k + 1); })
           .catch(() => { setLoading(false); });
       };
 
@@ -315,6 +405,7 @@ function toggleTheme() {
             </div>
           ) : (
             <>
+              <AlertSummary refreshKey={alertRefreshKey} />
               <div className="d-flex justify-content-between align-items-center mb-3">
                 <h5 style={{ fontWeight: 300, color: '#8899aa' }}><i className="bi bi-hdd-stack me-2"></i>{switches.length} Switch{switches.length > 1 ? 'es' : ''}</h5>
                 <div className="d-flex align-items-center gap-2">

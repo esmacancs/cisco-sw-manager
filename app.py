@@ -45,6 +45,61 @@ def _collect_and_cache(switch_dict):
     return res
 
 
+# ---------- Alert Evaluation ----------
+
+OPERATORS = {
+    ">": lambda a, b: a > b,
+    ">=": lambda a, b: a >= b,
+    "<": lambda a, b: a < b,
+    "<=": lambda a, b: a <= b,
+    "==": lambda a, b: a == b,
+}
+
+
+def _extract_metric_value(data, metric):
+    if not data or not data.get("reachable"):
+        return None
+    r = data.get("resource", {})
+    mapping = {
+        "cpu_usage": r.get("cpu_usage"),
+        "memory_usage_pct": r.get("memory_usage_pct"),
+        "memory_used_kb": r.get("memory_used_kb"),
+        "load_1m": r.get("load_1m"),
+        "interface_count": len(data.get("interfaces", [])),
+        "down_interfaces": sum(1 for i in data.get("interfaces", []) if i.get("status") != "up"),
+        "port_count": len(data.get("interfaces", [])),
+    }
+    return mapping.get(metric)
+
+
+def evaluate_alerts_for_switch(switch_id, switch_host, data):
+    rules = db.get_all_alert_rules()
+    for rule in rules:
+        if not rule["enabled"]:
+            continue
+        value = _extract_metric_value(data, rule["metric"])
+        if value is None:
+            continue
+        op_fn = OPERATORS.get(rule["operator"])
+        if op_fn and op_fn(value, rule["threshold"]):
+            existing = db.get_alerts(limit=50, status="active", switch_id=switch_id)
+            already_fired = any(
+                a["rule_id"] == rule["id"] and a["message"] == f"{rule['metric']} {rule['operator']} {rule['threshold']} (current: {value})"
+                for a in existing
+            )
+            if not already_fired:
+                msg = f"{rule['metric']} {rule['operator']} {rule['threshold']} (current: {value})"
+                db.add_alert(rule["id"], switch_id, switch_host, msg, value, rule["severity"])
+
+
+def evaluate_all_alerts():
+    switches = db.get_all_switches()
+    for sw in switches:
+        data = _get_cached(sw["host"])
+        if data:
+            evaluate_alerts_for_switch(sw["id"], sw["host"], data)
+
+
 @app.context_processor
 def inject_user():
     uid = session.get("user_id")
@@ -57,6 +112,7 @@ def inject_user():
         "current_user": session.get("username"),
         "current_role": session.get("role"),
         "hidden_tabs": ht,
+        "active_alert_count": db.get_active_alert_count(),
     }
 
 
@@ -210,6 +266,18 @@ def logs_page():
     return render_template("logs.html")
 
 
+@app.route("/alerts")
+@login_required
+def alerts_page():
+    return render_template("alerts.html")
+
+
+@app.route("/rules")
+@login_required
+def rules_page():
+    return render_template("rules.html")
+
+
 @app.route("/add", methods=["GET", "POST"])
 @login_required
 def add_switch():
@@ -351,6 +419,85 @@ def api_metrics(switch_id):
     return jsonify({"cpu": cpu_series, "memory": mem_series})
 
 
+@app.route("/api/traffic/<int:switch_id>")
+@api_login_required
+def api_traffic(switch_id):
+    snapshots = db.get_recent_snapshots(switch_id, limit=50)
+    latest = None
+    previous = None
+    for snap in reversed(snapshots):
+        try:
+            data = json.loads(snap["data_json"])
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if not data.get("reachable"):
+            continue
+        traffic = data.get("traffic", [])
+        if traffic:
+            if latest is None:
+                latest = {"traffic": traffic, "ts": snap["collected_at"]}
+            elif previous is None:
+                previous = {"traffic": traffic, "ts": snap["collected_at"]}
+                break
+    current = latest["traffic"] if latest else []
+    rates = []
+    if previous and latest:
+        prev_map = {t["interface"]: t for t in previous["traffic"]}
+        dt = 0
+        try:
+            from datetime import datetime
+            fmt = "%Y-%m-%d %H:%M:%S"
+            t1 = datetime.strptime(previous["ts"], fmt)
+            t2 = datetime.strptime(latest["ts"], fmt)
+            dt = (t2 - t1).total_seconds()
+        except Exception:
+            pass
+        for entry in current:
+            name = entry.get("interface", "")
+            prev = prev_map.get(name, {})
+            rx_b = entry.get("rx_bytes", 0)
+            tx_b = entry.get("tx_bytes", 0)
+            prx_b = prev.get("rx_bytes", 0)
+            ptx_b = prev.get("tx_bytes", 0)
+            rx_p = entry.get("rx_packets", 0)
+            tx_p = entry.get("tx_packets", 0)
+            prx_p = prev.get("rx_packets", 0)
+            ptx_p = prev.get("tx_packets", 0)
+            rx_rate = round((rx_b - prx_b) / dt, 0) if dt > 0 else 0
+            tx_rate = round((tx_b - ptx_b) / dt, 0) if dt > 0 else 0
+            pps_in = round((rx_p - prx_p) / dt, 0) if dt > 0 else 0
+            pps_out = round((tx_p - ptx_p) / dt, 0) if dt > 0 else 0
+            rates.append({
+                "interface": name, "rx_bytes": rx_b, "tx_bytes": tx_b,
+                "rx_packets": rx_p, "tx_packets": tx_p,
+                "rx_rate_bps": rx_rate, "tx_rate_bps": tx_rate,
+                "pps_in": pps_in, "pps_out": pps_out,
+            })
+    else:
+        for entry in current:
+            rates.append({
+                "interface": entry.get("interface", ""),
+                "rx_bytes": entry.get("rx_bytes", 0), "tx_bytes": entry.get("tx_bytes", 0),
+                "rx_packets": entry.get("rx_packets", 0), "tx_packets": entry.get("tx_packets", 0),
+                "rx_rate_bps": 0, "tx_rate_bps": 0, "pps_in": 0, "pps_out": 0,
+            })
+    return jsonify({"traffic": rates, "collected_at": latest["ts"] if latest else None})
+
+
+@app.route("/api/mac-table/<int:switch_id>")
+@api_login_required
+def api_mac_table(switch_id):
+    snap = db.get_latest_snapshot(switch_id)
+    if not snap:
+        return jsonify({"mac_table": [], "collected_at": None})
+    try:
+        data = json.loads(snap["data_json"])
+    except (json.JSONDecodeError, TypeError):
+        return jsonify({"mac_table": [], "collected_at": None})
+    mac_table = data.get("mac_table", [])
+    return jsonify({"mac_table": mac_table, "collected_at": snap.get("collected_at")})
+
+
 @app.route("/api/refresh/<int:switch_id>", methods=["POST"])
 @api_login_required
 def api_refresh(switch_id):
@@ -359,6 +506,7 @@ def api_refresh(switch_id):
         return jsonify({"error": "Switch not found"}), 404
     res = _collect_and_cache(switch)
     db.save_snapshot(switch_id, json.dumps(res, default=str))
+    evaluate_alerts_for_switch(switch_id, switch["host"], res)
     status = "success" if res.get("reachable") else "failed"
     db.audit(f"refresh_{status}",
              f"Refresh {status} for {switch['label']} ({switch['host']})",
@@ -406,6 +554,109 @@ def api_config():
     return jsonify({"poll_interval": POLL_INTERVAL})
 
 
+@app.route("/api/alerts")
+@api_login_required
+def api_alerts():
+    limit = request.args.get("limit", 200, type=int)
+    offset = request.args.get("offset", 0, type=int)
+    status = request.args.get("status")
+    severity = request.args.get("severity")
+    switch_id = request.args.get("switch_id", type=int)
+    alerts = db.get_alerts(limit=limit, offset=offset, status=status, severity=severity, switch_id=switch_id)
+    return jsonify({"alerts": alerts, "count": db.get_active_alert_count()})
+
+
+@app.route("/api/alerts/acknowledge_all", methods=["POST"])
+@api_login_required
+def api_acknowledge_all():
+    db.acknowledge_all_alerts()
+    return jsonify({"status": "ok"})
+
+
+@app.route("/api/alerts/<int:alert_id>/acknowledge", methods=["POST"])
+@api_login_required
+def api_acknowledge_alert(alert_id):
+    db.acknowledge_alert(alert_id)
+    return jsonify({"status": "ok"})
+
+
+@app.route("/api/alerts/<int:alert_id>", methods=["DELETE"])
+@api_login_required
+def api_delete_alert(alert_id):
+    with db._get_conn() as conn:
+        conn.execute("DELETE FROM alerts WHERE id = ?", (alert_id,))
+    return jsonify({"status": "ok"})
+
+
+@app.route("/api/alerts/summary")
+@api_login_required
+def api_alerts_summary():
+    with db._get_conn() as conn:
+        rows = conn.execute(
+            "SELECT severity, COUNT(*) as c FROM alerts WHERE status = 'active' GROUP BY severity"
+        ).fetchall()
+        by_severity = {r["severity"]: r["c"] for r in rows}
+        total = sum(by_severity.values())
+    return jsonify({
+        "total": total,
+        "critical": by_severity.get("critical", 0),
+        "warning": by_severity.get("warning", 0),
+        "info": by_severity.get("info", 0),
+    })
+
+
+@app.route("/api/rules")
+@api_login_required
+def api_rules():
+    rules = db.get_all_alert_rules()
+    return jsonify({"rules": rules})
+
+
+@app.route("/api/rules", methods=["POST"])
+@api_login_required
+def api_create_rule():
+    if session.get("role") != "admin":
+        return jsonify({"error": "Admin required"}), 403
+    data = request.get_json() or {}
+    name = data.get("name", "").strip()
+    metric = data.get("metric", "").strip()
+    operator = data.get("operator", ">")
+    threshold = data.get("threshold", 0)
+    severity = data.get("severity", "warning")
+    if not name or not metric:
+        return jsonify({"error": "Name and metric required"}), 400
+    if metric not in ("cpu_usage", "memory_usage_pct", "memory_used_kb", "load_1m", "interface_count", "down_interfaces", "port_count"):
+        return jsonify({"error": "Invalid metric"}), 400
+    if operator not in OPERATORS:
+        return jsonify({"error": "Invalid operator"}), 400
+    db.add_alert_rule(name, metric, operator, threshold, severity)
+    db.audit("rule_created", f"Created alert rule: {name}")
+    return jsonify({"status": "ok"})
+
+
+@app.route("/api/rules/<int:rule_id>", methods=["PUT", "DELETE"])
+@api_login_required
+def api_manage_rule(rule_id):
+    if session.get("role") != "admin":
+        return jsonify({"error": "Admin required"}), 403
+    if request.method == "DELETE":
+        db.delete_alert_rule(rule_id)
+        db.audit("rule_deleted", f"Deleted alert rule id {rule_id}")
+        return jsonify({"status": "ok"})
+    data = request.get_json() or {}
+    db.update_alert_rule(
+        rule_id,
+        name=data.get("name"),
+        metric=data.get("metric"),
+        operator=data.get("operator"),
+        threshold=data.get("threshold"),
+        severity=data.get("severity"),
+        enabled=data.get("enabled"),
+    )
+    db.audit("rule_updated", f"Updated alert rule id {rule_id}")
+    return jsonify({"status": "ok"})
+
+
 @app.route("/api/terminal/<int:switch_id>", methods=["POST"])
 @api_login_required
 def api_terminal(switch_id):
@@ -445,6 +696,7 @@ def _background_collect():
             try:
                 res = _collect_and_cache(sw)
                 db.save_snapshot(sw["id"], json.dumps(res, default=str))
+                evaluate_alerts_for_switch(sw["id"], sw["host"], res)
             except Exception:
                 pass
 

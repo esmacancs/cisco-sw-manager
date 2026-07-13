@@ -74,6 +74,7 @@ BASE_COMMANDS = {
         ("version",       "show version", True),
         ("resources",     "show system resources", True),
         ("interfaces",    "show interface brief", True),
+        ("traffic",       "show interface counters", True),
         ("vsan",          "show vsan", True),
         ("modules",       "show module", True),
         ("inventory",     "show inventory", True),
@@ -94,6 +95,7 @@ BASE_COMMANDS = {
         ("version",       "show version", True),
         ("resources",     "show system resources", True),
         ("interfaces",    "show interface status", True),
+        ("traffic",       "show interface counters", True),
         ("vlan",          "show vlan brief", True),
         ("modules",       "show module", True),
         ("inventory",     "show inventory", True),
@@ -103,12 +105,14 @@ BASE_COMMANDS = {
         ("boot",          "show boot", False),
         ("bootflash",     "dir bootflash:", False),
         ("int_desc",      "show interface description", False),
+        ("mac_table",     "show mac address-table dynamic", False),
     ],
     "ios": [
         ("version",       "show version", True),
         ("resources",     "show processes cpu | i CPU", True),
         ("memory",        "show memory statistics", True),
         ("interfaces",    "show interfaces status", True),
+        ("traffic",       "show interfaces counters", True),
         ("vlan",          "show vlan brief", True),
         ("inventory",     "show inventory", True),
         ("syslogs",       "show log last 100", True),
@@ -116,6 +120,7 @@ BASE_COMMANDS = {
         ("portchannel",   "show etherchannel summary", True),
         ("bootflash",     "dir flash:", False),
         ("ip_int",        "show ip interface brief", False),
+        ("mac_table",     "show mac address-table dynamic", False),
     ],
 }
 
@@ -640,6 +645,260 @@ def _parse_port_security(output):
     return entries
 
 
+def _parse_interface_counters(output):
+    """Parse 'show interface counters' output (NX-OS / MDS / IOS).
+    Handles two formats:
+      1. Nexus tabular: multiple sections with 'Port' header and InOctets/OutOctets columns
+      2. MDS verbose: per-interface blocks with 'X frames input/output, Y bytes'
+      3. Fallback: simple tabular with Interface header
+    Returns list of dicts with per-interface traffic counters.
+    """
+    entries = []
+    if not output.strip():
+        return entries
+
+    lines = output.splitlines()
+
+    has_dash_headers = any(l.strip().startswith("---") for l in lines)
+    has_port_header = any("Port" in l and "Octets" in l for l in lines)
+
+    if has_dash_headers and has_port_header:
+        return _parse_counters_nexus_tabular(lines)
+
+    has_verbose_rates = any("5 minutes" in l and "bits/sec" in l for l in lines)
+    has_frames_io = any(re.match(r"\s+\d+ frames (input|output)", l) for l in lines)
+    if has_verbose_rates and has_frames_io:
+        return _parse_counters_mds_verbose(lines)
+
+    return _parse_counters_generic_tabular(lines)
+
+
+def _parse_counters_nexus_tabular(lines):
+    """Parse Nexus 'show interface counters' which has multiple table sections:
+    Port InOctets InUcastPkts, Port OutOctets OutUcastPkts, etc.
+    """
+    merged = {}
+    current_col1 = None
+    current_col2 = None
+    ready_for_data = False
+    data_seen = False
+    for line in lines:
+        stripped = line.strip()
+        parts = stripped.split()
+        if not parts:
+            ready_for_data = False
+            data_seen = False
+            continue
+        if stripped.startswith("---"):
+            if data_seen:
+                ready_for_data = False
+                data_seen = False
+            continue
+        if parts[0] == "Port" and len(parts) >= 3:
+            current_col1 = parts[1].lower()
+            current_col2 = parts[2].lower()
+            ready_for_data = True
+            data_seen = False
+            continue
+        if not ready_for_data:
+            continue
+        name = parts[0]
+        if len(parts) < 2:
+            continue
+        try:
+            val1 = int(parts[1].replace(",", "")) if parts[1] not in ("--",) else 0
+        except (ValueError, IndexError):
+            val1 = 0
+        val2 = 0
+        if len(parts) >= 3:
+            try:
+                val2 = int(parts[2].replace(",", "")) if parts[2] not in ("--",) else 0
+            except (ValueError, IndexError):
+                val2 = 0
+        data_seen = True
+        if name not in merged:
+            merged[name] = {"interface": name, "rx_bytes": 0, "tx_bytes": 0,
+                            "rx_packets": 0, "tx_packets": 0}
+        if current_col1 and "inoctets" in current_col1:
+            merged[name]["rx_bytes"] = val1
+            if current_col2 and "inucast" in current_col2:
+                merged[name]["rx_packets"] = val2
+        elif current_col1 and "outoctets" in current_col1:
+            merged[name]["tx_bytes"] = val1
+            if current_col2 and "outucast" in current_col2:
+                merged[name]["tx_packets"] = val2
+        elif current_col1 and "inmcast" in current_col1:
+            if current_col2 and "inbcast" in current_col2:
+                merged[name]["rx_packets"] = merged[name].get("rx_packets", 0) + val1 + val2
+        elif current_col1 and "outmcast" in current_col1:
+            if current_col2 and "outbcast" in current_col2:
+                merged[name]["tx_packets"] = merged[name].get("tx_packets", 0) + val1 + val2
+    return list(merged.values())
+
+
+def _parse_counters_mds_verbose(lines):
+    """Parse MDS FC 'show interface counters' verbose per-interface blocks:
+        fc1/1
+            5 minutes input rate 0 bits/sec, 0 bytes/sec, 0 frames/sec
+            5 minutes output rate 0 bits/sec, 0 bytes/sec, 0 frames/sec
+            686 frames input, 100620 bytes
+            ...
+            686 frames output, 38032 bytes
+    """
+    entries = []
+    current_iface = None
+    current = None
+    for line in lines:
+        stripped = line.rstrip()
+        if not stripped:
+            continue
+        if not stripped[0].isspace():
+            parts = stripped.split()
+            if parts and re.match(r"^(fc|Eth|mgmt|port|sup|vfc|Po|mgmt0)", parts[0]):
+                if current:
+                    entries.append(current)
+                current_iface = parts[0]
+                current = {"interface": current_iface, "rx_bytes": 0, "tx_bytes": 0,
+                           "rx_packets": 0, "tx_packets": 0,
+                           "rx_bps": 0, "tx_bps": 0, "rx_fps": 0, "tx_fps": 0}
+            continue
+        if current is None:
+            continue
+        m = re.match(r"\s+5 minutes input rate (\d+) bits/sec,\s*\d+ bytes/sec,\s*(\d+) frames/sec", stripped)
+        if m:
+            current["rx_bps"] = int(m.group(1))
+            current["rx_fps"] = int(m.group(2))
+            continue
+        m = re.match(r"\s+5 minutes output rate (\d+) bits/sec,\s*\d+ bytes/sec,\s*(\d+) frames/sec", stripped)
+        if m:
+            current["tx_bps"] = int(m.group(1))
+            current["tx_fps"] = int(m.group(2))
+            continue
+        m = re.match(r"\s+(\d+) frames input,\s*(\d+) bytes", stripped)
+        if m:
+            current["rx_packets"] = int(m.group(1))
+            current["rx_bytes"] = int(m.group(2))
+            continue
+        m = re.match(r"\s+(\d+) frames output,\s*(\d+) bytes", stripped)
+        if m:
+            current["tx_packets"] = int(m.group(1))
+            current["tx_bytes"] = int(m.group(2))
+            continue
+    if current:
+        entries.append(current)
+    return entries
+
+
+def _parse_counters_generic_tabular(lines):
+    """Fallback: simple tabular with Interface header."""
+    entries = []
+    hdr = False
+    hdr_cols = []
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("-"):
+            continue
+        parts = stripped.split()
+        if not hdr:
+            if parts and parts[0].lower() in ("interface", "iface", "port"):
+                hdr = True
+                hdr_cols = [c.lower() for c in parts]
+                continue
+            continue
+        if len(parts) < 3:
+            continue
+        name = parts[0]
+        if name.lower() in ("interface", "iface", "port") or name.startswith("---"):
+            continue
+        entry = {"interface": name}
+        for i in range(1, min(len(parts), len(hdr_cols))):
+            col = hdr_cols[i]
+            try:
+                val = int(parts[i].replace(",", ""))
+                if "octet" in col or "byte" in col:
+                    entry["rx_bytes" if "in" in col else "tx_bytes"] = val
+                elif "pkts" in col or "packet" in col:
+                    if "in" in col:
+                        entry["rx_packets"] = val
+                    else:
+                        entry["tx_packets"] = val
+            except (ValueError, IndexError):
+                entry[col] = parts[i]
+        if "rx_bytes" not in entry:
+            try:
+                entry["rx_bytes"] = int(parts[1].replace(",", ""))
+                entry["tx_bytes"] = int(parts[2].replace(",", ""))
+                if len(parts) > 3:
+                    entry["rx_packets"] = int(parts[3].replace(",", ""))
+                if len(parts) > 4:
+                    entry["tx_packets"] = int(parts[4].replace(",", ""))
+            except (ValueError, IndexError):
+                pass
+        entries.append(entry)
+    return entries
+
+
+def _parse_mac_table(output):
+    """Parse 'show mac address-table dynamic' output (NX-OS / IOS).
+    Columns: * VLAN MAC Address Type age Secure NTFY Ports
+    Returns list of dicts with per-MAC entry.
+    """
+    entries = []
+    if not output.strip():
+        return entries
+    hdr = False
+    for line in output.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("-"):
+            continue
+        if "Legend" in stripped:
+            continue
+        if "VLAN" in stripped and "MAC Address" in stripped and "Ports" in stripped:
+            hdr = True
+            continue
+        if not hdr:
+            continue
+        m = re.match(
+            r"^[\*\+\~GC\(NA\)\s]*(\d+)\s+"
+            r"([0-9a-fA-F]{4}\.[0-9a-fA-F]{4}\.[0-9a-fA-F]{4})\s+"
+            r"(\S+)\s+"
+            r"(\S+)\s+"
+            r"(\S+)\s+(\S+)\s+"
+            r"(.+)",
+            stripped,
+        )
+        if m:
+            entries.append({
+                "vlan": int(m.group(1)),
+                "mac": m.group(2).lower(),
+                "type": m.group(3),
+                "age": m.group(4),
+                "secure": m.group(5),
+                "ntfy": m.group(6),
+                "port": m.group(7).strip(),
+            })
+            continue
+        m2 = re.match(
+            r"^[\*\+\~GC\(NA\)\s]*(\d+)\s+"
+            r"([0-9a-fA-F]{4}\.[0-9a-fA-F]{4}\.[0-9a-fA-F]{4})\s+"
+            r"(\S+)\s+"
+            r"(\S+)\s+"
+            r"(.+)",
+            stripped,
+        )
+        if m2:
+            entries.append({
+                "vlan": int(m2.group(1)),
+                "mac": m2.group(2).lower(),
+                "type": m2.group(3),
+                "age": m2.group(4),
+                "secure": "F",
+                "ntfy": "F",
+                "port": m2.group(5).strip(),
+            })
+    return entries
+
+
 def _parse_scsi_targets(output):
     if "Syntax error" in output or "Cmd exec error" in output: return []
     entries = []
@@ -683,6 +942,7 @@ def _collect_mds(ssh):
         "version_info": _safe_parse(_parse_version_nxos, raw["version"], {}),
         "resource": _safe_parse(_parse_system_resources_nxos, raw["resources"], {}),
         "interfaces": _safe_parse(_parse_interfaces_brief_mds, raw["interfaces"], []),
+        "traffic": _safe_parse(_parse_interface_counters, raw["traffic"], []),
         "vsans": _safe_parse(_parse_vsan, raw["vsan"], []),
         "modules": _safe_parse(_parse_modules_nxos, raw["modules"], []),
         "inventory": _safe_parse(_parse_inventory_common, raw["inventory"], []),
@@ -717,6 +977,7 @@ def _collect_nexus(ssh):
         "version_info": _safe_parse(_parse_version_nxos, raw["version"], {}),
         "resource": _safe_parse(_parse_system_resources_nxos, raw["resources"], {}),
         "interfaces": interfaces,
+        "traffic": _safe_parse(_parse_interface_counters, raw["traffic"], []),
         "vlans": _safe_parse(_parse_vlan_nxos, raw["vlan"], []),
         "modules": _safe_parse(_parse_modules_nxos, raw["modules"], []),
         "inventory": _safe_parse(_parse_inventory_common, raw["inventory"], []),
@@ -725,6 +986,7 @@ def _collect_nexus(ssh):
         "portchannels": _safe_parse(_parse_portchannel_nxos, raw["portchannel"], []),
         "boot": _safe_parse(_parse_boot_nxos, raw["boot"], {"current": {}, "next_reload": {}}),
         "bootflash": _safe_parse(_parse_bootflash, raw["bootflash"], {"files": [], "usage": {}}),
+        "mac_table": _safe_parse(_parse_mac_table, raw.get("mac_table", ""), []),
     }
 
 
@@ -745,12 +1007,14 @@ def _collect_ios(ssh):
         "version_info": _safe_parse(_parse_version_ios, raw["version"], {}),
         "resource": resource,
         "interfaces": _safe_parse(_parse_interfaces_ios, raw["interfaces"], []),
+        "traffic": _safe_parse(_parse_interface_counters, raw["traffic"], []),
         "vlans": _safe_parse(_parse_vlan_ios, raw["vlan"], []),
         "inventory": _safe_parse(_parse_inventory_common, raw["inventory"], []),
         "syslogs": _safe_parse(_parse_syslogs_common, raw["syslogs"], []),
         "environment": _safe_parse(_parse_env_ios, raw["environment"], {"power_supplies": [], "fans": [], "temperatures": []}),
         "portchannels": _safe_parse(_parse_etherchannel_ios, raw["portchannel"], []),
         "bootflash": _safe_parse(_parse_bootflash, raw["bootflash"], {"files": [], "usage": {}}),
+        "mac_table": _safe_parse(_parse_mac_table, raw.get("mac_table", ""), []),
     }
 
 
