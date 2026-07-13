@@ -456,7 +456,7 @@ def api_traffic(switch_id):
     snapshots = db.get_recent_snapshots(switch_id, limit=50)
     latest = None
     previous = None
-    for snap in reversed(snapshots):
+    for snap in snapshots:
         try:
             data = json.loads(snap["data_json"])
         except (json.JSONDecodeError, TypeError):
