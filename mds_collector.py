@@ -124,6 +124,72 @@ BASE_COMMANDS = {
     ],
 }
 
+# Tier 1: Fast-changing data — collected every poll cycle (30s)
+TIER1_COMMANDS = {
+    "mds": [
+        ("resources",     "show system resources", True),
+        ("interfaces",    "show interface brief", True),
+        ("traffic",       "show interface counters", True),
+        ("syslogs",       "show log last 100", True),
+    ],
+    "nexus": [
+        ("resources",     "show system resources", True),
+        ("interfaces",    "show interface status", True),
+        ("traffic",       "show interface counters", True),
+        ("syslogs",       "show logging last 100", True),
+        ("mac_table",     "show mac address-table dynamic", False),
+    ],
+    "ios": [
+        ("resources",     "show processes cpu | i CPU", True),
+        ("memory",        "show memory statistics", True),
+        ("interfaces",    "show interfaces status", True),
+        ("traffic",       "show interfaces counters", True),
+        ("syslogs",       "show log last 100", True),
+        ("mac_table",     "show mac address-table dynamic", False),
+    ],
+}
+
+# Tier 2: Static/slow-changing data — collected every ~10 minutes
+TIER2_COMMANDS = {
+    "mds": [
+        ("version",       "show version", True),
+        ("vsan",          "show vsan", True),
+        ("modules",       "show module", True),
+        ("inventory",     "show inventory", True),
+        ("environment",   "show environment", True),
+        ("portchannel",   "show port-channel summary", True),
+        ("boot",          "show boot", False),
+        ("bootflash",     "dir bootflash:", False),
+        ("fcns",          "show fcns database", False),
+        ("flogi",         "show flogi database", False),
+        ("zoneset",       "show zoneset active", False),
+        ("device_aliases","show device-alias database", False),
+        ("port_security", "show port-security database", False),
+        ("scsi_targets",  "show scsi-targets", False),
+        ("accounting",    "show accounting log", False),
+    ],
+    "nexus": [
+        ("version",       "show version", True),
+        ("vlan",          "show vlan brief", True),
+        ("modules",       "show module", True),
+        ("inventory",     "show inventory", True),
+        ("environment",   "show environment", True),
+        ("portchannel",   "show port-channel summary", True),
+        ("boot",          "show boot", False),
+        ("bootflash",     "dir bootflash:", False),
+        ("int_desc",      "show interface description", False),
+    ],
+    "ios": [
+        ("version",       "show version", True),
+        ("vlan",          "show vlan brief", True),
+        ("inventory",     "show inventory", True),
+        ("environment",   "show env all", True),
+        ("portchannel",   "show etherchannel summary", True),
+        ("bootflash",     "dir flash:", False),
+        ("ip_int",        "show ip interface brief", False),
+    ],
+}
+
 
 # ── Platform-agnostic parsers (work for MDS & Nexus NX-OS) ─────────
 
@@ -1038,6 +1104,117 @@ def collect_switch(host, username, password, port=22):
         finally:
             ssh.close()
         return data
+    except Exception as e:
+        err_msg = str(e)
+        if "timed out" in err_msg.lower():
+            err_msg = f"Connection timed out — unable to reach {host}:{port}"
+        elif "Authentication" in err_msg:
+            err_msg = f"Authentication failed — check username/password for {host}"
+        return {"host": host, "reachable": False, "error": err_msg}
+
+
+def _collect_tier(ssh, platform, tier_commands):
+    """Run only the commands for a specific tier and return parsed results."""
+    raw = {}
+    for key, cmd, _ in tier_commands:
+        raw[key] = _safe_exec(ssh, cmd)
+    return raw
+
+
+def collect_switch_tier1(host, username, password, port=22):
+    """Tier 1 collection: fast-changing data only (CPU, memory, interfaces, traffic, syslogs, MAC table)."""
+    try:
+        ssh = _build_ssh(host, username, password, port)
+        try:
+            version_raw = _ssh_exec(ssh, "show version")
+            platform = detect_platform(version_raw)
+            tier1 = TIER1_COMMANDS.get(platform, [])
+            raw = _collect_tier(ssh, platform, tier1)
+            result = {"platform": platform, "host": host, "reachable": True}
+            if platform == "mds":
+                result["resource"] = _safe_parse(_parse_system_resources_nxos, raw.get("resources", ""), {})
+                result["interfaces"] = _safe_parse(_parse_interfaces_brief_mds, raw.get("interfaces", ""), [])
+                result["traffic"] = _safe_parse(_parse_interface_counters, raw.get("traffic", ""), [])
+                result["syslogs"] = _safe_parse(_parse_syslogs_common, raw.get("syslogs", ""), [])
+            elif platform == "nexus":
+                result["resource"] = _safe_parse(_parse_system_resources_nxos, raw.get("resources", ""), {})
+                result["interfaces"] = _safe_parse(_parse_interfaces_nxos, raw.get("interfaces", ""), [])
+                result["traffic"] = _safe_parse(_parse_interface_counters, raw.get("traffic", ""), [])
+                result["syslogs"] = _safe_parse(_parse_syslogs_common, raw.get("syslogs", ""), [])
+                result["mac_table"] = _safe_parse(_parse_mac_table, raw.get("mac_table", ""), [])
+            elif platform == "ios":
+                cpu_data = _safe_parse(_parse_cpu_ios, raw.get("resources", ""), {})
+                mem_data = _safe_parse(_parse_memory_ios, raw.get("memory", ""), {})
+                resource = {}
+                resource["cpu_usage"] = cpu_data.get("cpu_usage", "N/A")
+                resource["memory_total_kb"] = mem_data.get("memory_total_kb", "N/A")
+                resource["memory_used_kb"] = mem_data.get("memory_used_kb", "N/A")
+                resource["memory_usage_pct"] = mem_data.get("memory_usage_pct", "N/A")
+                resource["load_1m"] = "N/A"
+                result["resource"] = resource
+                result["interfaces"] = _safe_parse(_parse_interfaces_ios, raw.get("interfaces", ""), [])
+                result["traffic"] = _safe_parse(_parse_interface_counters, raw.get("traffic", ""), [])
+                result["syslogs"] = _safe_parse(_parse_syslogs_common, raw.get("syslogs", ""), [])
+                result["mac_table"] = _safe_parse(_parse_mac_table, raw.get("mac_table", ""), [])
+        finally:
+            ssh.close()
+        return result
+    except Exception as e:
+        err_msg = str(e)
+        if "timed out" in err_msg.lower():
+            err_msg = f"Connection timed out — unable to reach {host}:{port}"
+        elif "Authentication" in err_msg:
+            err_msg = f"Authentication failed — check username/password for {host}"
+        return {"host": host, "reachable": False, "error": err_msg}
+
+
+def collect_switch_tier2(host, username, password, port=22):
+    """Tier 2 collection: static/slow-changing data (version, inventory, modules, environment, etc)."""
+    try:
+        ssh = _build_ssh(host, username, password, port)
+        try:
+            version_raw = _ssh_exec(ssh, "show version")
+            platform = detect_platform(version_raw)
+            tier2 = TIER2_COMMANDS.get(platform, [])
+            raw = _collect_tier(ssh, platform, tier2)
+            result = {"platform": platform, "host": host, "reachable": True}
+            if platform == "mds":
+                result["version_info"] = _safe_parse(_parse_version_nxos, raw.get("version", ""), {})
+                result["vsans"] = _safe_parse(_parse_vsan, raw.get("vsan", ""), [])
+                result["modules"] = _safe_parse(_parse_modules_nxos, raw.get("modules", ""), [])
+                result["inventory"] = _safe_parse(_parse_inventory_common, raw.get("inventory", ""), [])
+                result["environment"] = _safe_parse(_parse_env_nxos_common, raw.get("environment", ""), {"power_supplies": [], "fans": [], "temperatures": [], "power_summary": {}})
+                result["portchannels"] = _safe_parse(_parse_portchannel_nxos, raw.get("portchannel", ""), [])
+                result["boot"] = _safe_parse(_parse_boot_nxos, raw.get("boot", ""), {"current": {}, "next_reload": {}})
+                result["bootflash"] = _safe_parse(_parse_bootflash, raw.get("bootflash", ""), {"files": [], "usage": {}})
+                result["flogi"] = _safe_parse(_parse_flogi, raw.get("flogi", ""), [])
+                result["fcns"] = _safe_parse(_parse_fcns, raw.get("fcns", ""), [])
+                result["zoneset"] = _safe_parse(_parse_zoneset, raw.get("zoneset", ""), [])
+                result["device_aliases"] = _safe_parse(_parse_device_aliases, raw.get("device_aliases", ""), [])
+                result["port_security"] = _safe_parse(_parse_port_security, raw.get("port_security", ""), [])
+                result["scsi_targets"] = _safe_parse(_parse_scsi_targets, raw.get("scsi_targets", ""), [])
+                result["accounting"] = _safe_parse(_parse_accounting, raw.get("accounting", ""), [])
+            elif platform == "nexus":
+                result["version_info"] = _safe_parse(_parse_version_nxos, raw.get("version", ""), {})
+                result["vlans"] = _safe_parse(_parse_vlan_nxos, raw.get("vlan", ""), [])
+                result["modules"] = _safe_parse(_parse_modules_nxos, raw.get("modules", ""), [])
+                result["inventory"] = _safe_parse(_parse_inventory_common, raw.get("inventory", ""), [])
+                result["environment"] = _safe_parse(_parse_env_nxos_common, raw.get("environment", ""), {"power_supplies": [], "fans": [], "temperatures": [], "power_summary": {}})
+                result["portchannels"] = _safe_parse(_parse_portchannel_nxos, raw.get("portchannel", ""), [])
+                result["boot"] = _safe_parse(_parse_boot_nxos, raw.get("boot", ""), {"current": {}, "next_reload": {}})
+                result["bootflash"] = _safe_parse(_parse_bootflash, raw.get("bootflash", ""), {"files": [], "usage": {}})
+                descs = _safe_parse(_parse_interface_desc_nxos, raw.get("int_desc", ""), {})
+                result["int_desc"] = descs
+            elif platform == "ios":
+                result["version_info"] = _safe_parse(_parse_version_ios, raw.get("version", ""), {})
+                result["vlans"] = _safe_parse(_parse_vlan_ios, raw.get("vlan", ""), [])
+                result["inventory"] = _safe_parse(_parse_inventory_common, raw.get("inventory", ""), [])
+                result["environment"] = _safe_parse(_parse_env_ios, raw.get("environment", ""), {"power_supplies": [], "fans": [], "temperatures": []})
+                result["portchannels"] = _safe_parse(_parse_etherchannel_ios, raw.get("portchannel", ""), [])
+                result["bootflash"] = _safe_parse(_parse_bootflash, raw.get("bootflash", ""), {"files": [], "usage": {}})
+        finally:
+            ssh.close()
+        return result
     except Exception as e:
         err_msg = str(e)
         if "timed out" in err_msg.lower():

@@ -5,7 +5,7 @@ import uuid
 from functools import wraps
 from flask import Flask, render_template, request, redirect, url_for, jsonify, session
 import database as db
-from mds_collector import collect_switch, _build_ssh, _ssh_exec
+from mds_collector import collect_switch, collect_switch_tier1, collect_switch_tier2, _build_ssh, _ssh_exec
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", uuid.uuid4().hex)
@@ -14,6 +14,8 @@ db.init_db()
 collect_cache = {}
 CACHE_LOCK = threading.Lock()
 POLL_INTERVAL = 30
+TIER2_INTERVAL = 600  # 10 minutes between full collections
+_tier2_last_run = {}  # host -> timestamp of last tier2 collection
 
 
 def _get_cached(host):
@@ -27,6 +29,7 @@ def _set_cached(host, data):
 
 
 def _load_cache_from_db():
+    import time
     switches = db.get_all_switches()
     for sw in switches:
         snap = db.get_latest_snapshot(sw["id"])
@@ -34,13 +37,41 @@ def _load_cache_from_db():
             try:
                 data = json.loads(snap["data_json"])
                 _set_cached(sw["host"], data)
+                # Restore tier2 timestamp from snapshot time
+                collected_at = snap.get("collected_at", "")
+                if collected_at:
+                    try:
+                        from datetime import datetime
+                        ts = datetime.strptime(collected_at, "%Y-%m-%d %H:%M:%S").timestamp()
+                        _tier2_last_run[sw["host"]] = ts
+                    except Exception:
+                        pass
             except (json.JSONDecodeError, TypeError):
                 pass
 
 
 def _collect_and_cache(switch_dict):
+    """Collect from switch using tiered approach: tier1 every cycle, tier2 every 10 minutes."""
+    import time
     host = switch_dict["host"]
-    res = collect_switch(host, switch_dict["username"], switch_dict["password"], switch_dict.get("port", 22))
+    port = switch_dict.get("port", 22)
+    now = time.time()
+    last_t2 = _tier2_last_run.get(host, 0)
+    need_tier2 = (now - last_t2) >= TIER2_INTERVAL
+
+    if need_tier2:
+        # Full collection (includes tier2 data)
+        res = collect_switch(host, switch_dict["username"], switch_dict["password"], port)
+        if res.get("reachable"):
+            _tier2_last_run[host] = now
+    else:
+        # Tier 1 only — merge with cached tier2 data
+        t1 = collect_switch_tier1(host, switch_dict["username"], switch_dict["password"], port)
+        cached = _get_cached(host) or {}
+        res = {**cached, **t1}
+        res["host"] = host
+        res["reachable"] = t1.get("reachable", False)
+
     _set_cached(host, res)
     return res
 
@@ -551,7 +582,33 @@ def api_logs():
 
 @app.route("/api/config")
 def api_config():
-    return jsonify({"poll_interval": POLL_INTERVAL})
+    return jsonify({"poll_interval": POLL_INTERVAL, "tier2_interval": TIER2_INTERVAL})
+
+
+@app.route("/api/settings", methods=["GET", "POST"])
+@api_login_required
+def api_settings():
+    global POLL_INTERVAL, TIER2_INTERVAL
+    if session.get("role") != "admin":
+        return jsonify({"error": "Admin only"}), 403
+    if request.method == "GET":
+        return jsonify({
+            "poll_interval": POLL_INTERVAL,
+            "tier2_interval": TIER2_INTERVAL,
+            "tier2_last_run": dict(_tier2_last_run),
+        })
+    data = request.get_json(silent=True) or {}
+    if "poll_interval" in data:
+        val = int(data["poll_interval"])
+        if val >= 10:
+            POLL_INTERVAL = val
+    if "tier2_interval" in data:
+        val = int(data["tier2_interval"])
+        if val >= 60:
+            TIER2_INTERVAL = val
+    db.audit("settings_change",
+             f"Settings updated: POLL_INTERVAL={POLL_INTERVAL}, TIER2_INTERVAL={TIER2_INTERVAL}")
+    return jsonify({"poll_interval": POLL_INTERVAL, "tier2_interval": TIER2_INTERVAL})
 
 
 @app.route("/api/alerts")
